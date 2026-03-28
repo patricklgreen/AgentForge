@@ -1,0 +1,80 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AgentForge Terraform Variables Example
+#
+# Copy to terraform.tfvars and fill in your values.
+# NEVER commit terraform.tfvars to version control.
+# Use: echo "terraform.tfvars" >> .gitignore
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Deployment Target ────────────────────────────────────────────────────────
+
+aws_region   = "us-east-1"
+environment  = "prod"           # dev | staging | prod
+project_name = "agentforge"
+
+# ─── Network ──────────────────────────────────────────────────────────────────
+
+vpc_cidr = "10.0.0.0/16"
+
+availability_zones = [
+  "us-east-1a",
+  "us-east-1b",
+  "us-east-1c",
+]
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+
+db_instance_class        = "db.t3.micro"     # Use db.t3.small+ for production
+db_name                  = "agentforge"
+db_username              = "agentforge"
+db_password              = "CHANGE_ME_USE_STRONG_PASSWORD_16_CHARS_MIN"
+db_allocated_storage     = 20
+db_max_allocated_storage = 100
+
+# ─── Redis ────────────────────────────────────────────────────────────────────
+
+redis_node_type = "cache.t3.micro"   # Use cache.t3.small+ for production
+
+# ─── ECS Tasks ────────────────────────────────────────────────────────────────
+
+backend_cpu    = 512    # 0.5 vCPU
+backend_memory = 1024   # 1 GB
+
+frontend_cpu    = 256   # 0.25 vCPU
+frontend_memory = 512   # 512 MB
+
+backend_desired_count  = 2
+frontend_desired_count = 2
+backend_min_capacity   = 2
+backend_max_capacity   = 10
+
+# ─── Application Secrets ──────────────────────────────────────────────────────
+
+# Generate with: openssl rand -base64 48
+secret_key = "CHANGE_ME_MINIMUM_32_CHAR_SECRET_KEY_FOR_JWT_SIGNING"
+
+# ─── AI Models ───────────────────────────────────────────────────────────────
+
+# Enable these models in AWS Console → Bedrock → Model Access before deploying
+bedrock_model_id      = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+bedrock_fast_model_id = "anthropic.claude-3-5-haiku-20241022-v1:0"
+
+# ─── HTTPS (optional but recommended for production) ─────────────────────────
+
+# Leave both empty to run on HTTP (development/testing)
+# Provision an ACM certificate first, then fill these in:
+domain_name     = ""   # e.g. "agentforge.yourdomain.com"
+certificate_arn = ""   # e.g. "arn:aws:acm:us-east-1:123456789:certificate/abc"
+
+# ─── GitHub Actions OIDC ──────────────────────────────────────────────────────
+
+# Set to your GitHub org/username and repository name
+github_org  = "YOUR_GITHUB_ORG_OR_USERNAME"
+github_repo = "agentforge"
+
+# ─── Additional Tags ──────────────────────────────────────────────────────────
+
+additional_tags = {
+  Team        = "Platform"
+  CostCenter  = "Engineering"
+}

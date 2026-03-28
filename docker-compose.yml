@@ -1,0 +1,107 @@
+version: "3.9"
+
+services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB:       agentforge
+      POSTGRES_USER:     agentforge
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:         ["CMD-SHELL", "pg_isready -U agentforge -d agentforge"]
+      interval:     10s
+      timeout:      5s
+      retries:      5
+      start_period: 10s
+
+  postgres_test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB:       agentforge_test
+      POSTGRES_USER:     agentforge
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"     # Different host port to avoid conflict with main db
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U agentforge -d agentforge_test"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+
+  # ─── Application ───────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context:    ./backend
+      dockerfile: Dockerfile
+      target:     runtime
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV:              development
+      DEBUG:                "true"
+      DATABASE_URL:         postgresql+asyncpg://agentforge:password@postgres:5432/agentforge
+      DATABASE_SYNC_URL:    postgresql+psycopg://agentforge:password@postgres:5432/agentforge
+      REDIS_URL:            redis://redis:6379/0
+      AWS_REGION:           ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID:    ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_BUCKET_NAME:       ${S3_BUCKET_NAME:-agentforge-artifacts-dev}
+      BEDROCK_MODEL_ID:     ${BEDROCK_MODEL_ID:-anthropic.claude-3-5-sonnet-20241022-v2:0}
+      BEDROCK_FAST_MODEL_ID: ${BEDROCK_FAST_MODEL_ID:-anthropic.claude-3-5-haiku-20241022-v1:0}
+      SECRET_KEY:           ${SECRET_KEY:-dev-secret-key-change-in-production-min-32}
+      CORS_ORIGINS:         "http://localhost:3000,http://localhost:5173"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount source for hot-reload in development
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+    healthcheck:
+      test:         ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval:     30s
+      timeout:      10s
+      retries:      3
+      start_period: 60s
+
+  frontend:
+    build:
+      context:    ./frontend
+      dockerfile: Dockerfile
+      target:     builder    # Use build stage for dev to avoid nginx complexity
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL:  ws://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    command: npm run dev -- --host 0.0.0.0
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    driver: local
