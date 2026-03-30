@@ -21,7 +21,6 @@ from app.schemas.project import (
 )
 from app.agents.orchestrator import AgentOrchestrator
 from app.config import get_settings
-from app.auth.dependencies import CurrentUser, get_current_user_for_project
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -47,12 +46,10 @@ async def get_orchestrator() -> AgentOrchestrator:
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     data: ProjectCreate,
-    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> Project:
     """Create a new project."""
     project = Project(
-        user_id=user.id,
         name=data.name,
         description=data.description,
         requirements=data.requirements,
@@ -70,16 +67,11 @@ async def create_project(
 async def list_projects(
     skip: int = 0,
     limit: int = 20,
-    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[Project]:
-    """List all projects for the authenticated user, newest first."""
+    """List all projects, newest first."""
     result = await db.execute(
-        select(Project)
-        .where(Project.user_id == user.id)
-        .order_by(desc(Project.created_at))
-        .offset(skip)
-        .limit(limit)
+        select(Project).order_by(desc(Project.created_at)).offset(skip).limit(limit)
     )
     return list(result.scalars().all())
 
@@ -87,7 +79,6 @@ async def list_projects(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: uuid.UUID,
-    user: CurrentUser = Depends(get_current_user_for_project),
     db: AsyncSession = Depends(get_db),
 ) -> Project:
     """Get a single project by ID."""
