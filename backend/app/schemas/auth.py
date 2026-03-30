@@ -2,9 +2,10 @@
 Authentication and authorization schemas for API requests and responses.
 """
 import uuid
+import re
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, Field, validator
 
 from app.models.auth import UserRole
 
@@ -12,9 +13,15 @@ from app.models.auth import UserRole
 # ─── User Schemas ──────────────────────────────────────────────────────────────
 
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str = Field(..., description="User email address")
     username: str = Field(..., min_length=3, max_length=100)
     full_name: Optional[str] = Field(None, max_length=200)
+
+    @validator('email')
+    def validate_email(cls, v):
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
+            raise ValueError('Invalid email format')
+        return v
 
 
 class UserCreate(UserBase):
@@ -34,10 +41,16 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     username: Optional[str] = Field(None, min_length=3, max_length=100)
     full_name: Optional[str] = Field(None, max_length=200)
     is_active: Optional[bool] = None
+
+    @validator('email')
+    def validate_email(cls, v):
+        if v and not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
+            raise ValueError('Invalid email format')
+        return v
 
 
 class UserResponse(UserBase):
@@ -62,8 +75,14 @@ class UserProfile(UserResponse):
 # ─── Authentication Schemas ────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
+
+    @validator('email')
+    def validate_email(cls, v):
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
+            raise ValueError('Invalid email format')
+        return v
 
 
 class LoginResponse(BaseModel):
@@ -85,7 +104,13 @@ class TokenResponse(BaseModel):
 
 
 class PasswordResetRequest(BaseModel):
-    email: EmailStr
+    email: str
+
+    @validator('email')
+    def validate_email(cls, v):
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
+            raise ValueError('Invalid email format')
+        return v
 
 
 class PasswordResetConfirm(BaseModel):

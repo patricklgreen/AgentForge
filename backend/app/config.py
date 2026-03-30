@@ -48,14 +48,13 @@ class Settings(BaseSettings):
     s3_bucket_name: str = "agentforge-artifacts"
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: object) -> list[str]:
-        if isinstance(v, str):
-            return [i.strip() for i in v.split(",")]
-        return v  # type: ignore[return-value]
+    def get_cors_origins_list(self) -> list[str]:
+        """Convert CORS origins string to list"""
+        if isinstance(self.cors_origins, str):
+            return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return [self.cors_origins]
 
 
 @lru_cache()

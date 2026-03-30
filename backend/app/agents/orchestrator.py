@@ -111,8 +111,11 @@ class AgentOrchestrator:
             .replace("postgresql+asyncpg://",  "postgresql://")
             .replace("postgresql+psycopg2://", "postgresql://")
         )
-        self._checkpointer = AsyncPostgresSaver.from_conn_string(clean_conn)
-        await self._checkpointer.setup()
+        
+        # Use the context manager to get the checkpointer
+        checkpointer_cm = AsyncPostgresSaver.from_conn_string(clean_conn)
+        self._checkpointer = await checkpointer_cm.__aenter__()
+        
         self._graph = self._build_graph()
         logger.info("AgentOrchestrator initialised")
 

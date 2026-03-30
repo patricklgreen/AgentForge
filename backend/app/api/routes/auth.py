@@ -16,6 +16,8 @@ from app.auth.dependencies import (
     get_admin_user,
     get_current_verified_user,
     CurrentUser,
+    VerifiedUser,
+    AdminUser,
     DatabaseSession,
     log_security_event
 )
@@ -389,9 +391,9 @@ async def revoke_api_key(
 @router.get("/users", response_model=List[UserResponse])
 async def list_users(
     admin: AdminUser,
+    db: DatabaseSession,
     skip: int = 0,
     limit: int = 100,
-    db: DatabaseSession
 ) -> List[User]:
     """List all users (admin only)."""
     result = await db.execute(
