@@ -1,13 +1,9 @@
 import "@testing-library/jest-dom";
-import { vi } from "vitest";
+import { vi, beforeAll, afterAll } from "vitest";
 
 // Mock Monaco Editor — it requires a DOM environment not available in jsdom
 vi.mock("@monaco-editor/react", () => ({
-  default: vi.fn(({ value }: { value: string }) => (
-    <div data-testid="monaco-editor" data-value={value?.substring(0, 100)}>
-      {/* Monaco Editor Mock */}
-    </div>
-  )),
+  default: vi.fn(() => "MockedMonacoEditor"),
 }));
 
 // Mock environment variables

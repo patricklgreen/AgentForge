@@ -6,12 +6,12 @@ interface AppState {
   projects: Project[];
   setProjects: (projects: Project[]) => void;
   addProject: (project: Project) => void;
-  updateProject: (id: string, updates: Partial) => void;
+  updateProject: (id: string, updates: Partial<Project>) => void;
 
   // Active run
   activeRun: ProjectRun | null;
   setActiveRun: (run: ProjectRun | null) => void;
-  updateActiveRun: (updates: Partial) => void;
+  updateActiveRun: (updates: Partial<ProjectRun>) => void;
 
   // Live events from WebSocket (capped at 500)
   liveEvents: RunEvent[];
@@ -26,18 +26,18 @@ interface AppState {
   setReviewModalOpen: (open: boolean) => void;
 }
 
-export const useAppStore = create((set) => ({
+export const useAppStore = create<AppState>((set) => ({
   // ── Projects ────────────────────────────────────────────────────────────────
   projects: [],
 
-  setProjects: (projects) => set({ projects }),
+  setProjects: (projects: Project[]) => set({ projects }),
 
-  addProject: (project) =>
-    set((state) => ({ projects: [project, ...state.projects] })),
+  addProject: (project: Project) =>
+    set((state: AppState) => ({ projects: [project, ...state.projects] })),
 
-  updateProject: (id, updates) =>
-    set((state) => ({
-      projects: state.projects.map((p) =>
+  updateProject: (id: string, updates: Partial<Project>) =>
+    set((state: AppState) => ({
+      projects: state.projects.map((p: Project) =>
         p.id === id ? { ...p, ...updates } : p
       ),
     })),
@@ -45,18 +45,18 @@ export const useAppStore = create((set) => ({
   // ── Active Run ───────────────────────────────────────────────────────────────
   activeRun: null,
 
-  setActiveRun: (run) => set({ activeRun: run }),
+  setActiveRun: (run: ProjectRun | null) => set({ activeRun: run }),
 
-  updateActiveRun: (updates) =>
-    set((state) => ({
+  updateActiveRun: (updates: Partial<ProjectRun>) =>
+    set((state: AppState) => ({
       activeRun: state.activeRun ? { ...state.activeRun, ...updates } : null,
     })),
 
   // ── Live Events ──────────────────────────────────────────────────────────────
   liveEvents: [],
 
-  addLiveEvent: (event) =>
-    set((state) => ({
+  addLiveEvent: (event: WsMessage) =>
+    set((state: AppState) => ({
       liveEvents: [
         ...state.liveEvents,
         {
@@ -76,8 +76,8 @@ export const useAppStore = create((set) => ({
 
   // ── UI State ─────────────────────────────────────────────────────────────────
   selectedProjectId: null,
-  setSelectedProjectId: (id) => set({ selectedProjectId: id }),
+  setSelectedProjectId: (id: string | null) => set({ selectedProjectId: id }),
 
   isReviewModalOpen: false,
-  setReviewModalOpen: (open) => set({ isReviewModalOpen: open }),
+  setReviewModalOpen: (open: boolean) => set({ isReviewModalOpen: open }),
 }));

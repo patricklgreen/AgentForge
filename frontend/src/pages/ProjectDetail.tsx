@@ -453,9 +453,9 @@ export function ProjectDetail() {
               ({entry.data.total_files as number} files)
             </span>
           )}
-          {entry.data?.zip_url && (
+          {entry.data?.zip_url && typeof entry.data.zip_url === 'string' ? (
             <a
-              href={entry.data.zip_url as string}
+              href={entry.data.zip_url}
               target="_blank"
               rel="noopener noreferrer"
               className="ml-2 text-indigo-400 hover:text-indigo-300 inline-flex items-center gap-1"
@@ -463,7 +463,7 @@ export function ProjectDetail() {
               <ExternalLink className="h-3 w-3" />
               Download ZIP
             </a>
-          )}
+          ) : null}
         </span>
       </div>
     );

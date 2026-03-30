@@ -19,7 +19,7 @@ const makeEvent = (
 
 describe("AgentTimeline", () => {
   it("renders all nine pipeline steps including validation", () => {
-    render(<AgentTimeline events={[]} />);
+    render(<AgentTimeline events={[]} currentStep={undefined} runStatus={undefined} />);
 
     expect(screen.getByText("Requirements Analysis")).toBeInTheDocument();
     expect(screen.getByText("Architecture Design")).toBeInTheDocument();
@@ -33,7 +33,7 @@ describe("AgentTimeline", () => {
   });
 
   it("renders agent names for each step", () => {
-    render(<AgentTimeline events={[]} />);
+    render(<AgentTimeline events={[]} currentStep={undefined} runStatus={undefined} />);
     expect(screen.getByText("RequirementsAnalyst")).toBeInTheDocument();
     expect(screen.getByText("Validator")).toBeInTheDocument();
     expect(screen.getByText("TestWriter")).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe("AgentTimeline", () => {
       makeEvent("agent_start",    "requirements_analysis", "RequirementsAnalyst"),
       makeEvent("interrupt",      "requirements_analysis", "Orchestrator"),
     ];
-    render(<AgentTimeline events={events} />);
+    render(<AgentTimeline events={events} currentStep={undefined} runStatus={undefined} />);
     expect(screen.getByText("Awaiting Review")).toBeInTheDocument();
   });
 
@@ -53,7 +53,7 @@ describe("AgentTimeline", () => {
       makeEvent("agent_start",    "requirements_analysis", "RequirementsAnalyst"),
       makeEvent("agent_complete", "requirements_analysis", "RequirementsAnalyst"),
     ];
-    render(<AgentTimeline events={events} />);
+    render(<AgentTimeline events={events} currentStep={undefined} runStatus={undefined} />);
     const checkIcons = document.querySelectorAll('[data-testid="check-icon"]');
     expect(checkIcons.length).toBeGreaterThanOrEqual(1);
   });
@@ -66,7 +66,7 @@ describe("AgentTimeline", () => {
       makeEvent("agent_complete", "validation",      "Validator"),
       makeEvent("agent_start",    "test_writing",    "TestWriter"),
     ];
-    render(<AgentTimeline events={events} />);
+    render(<AgentTimeline events={events} currentStep={undefined} runStatus={undefined} />);
     // code_generation and validation should be complete
     const checkIcons = document.querySelectorAll('[data-testid="check-icon"]');
     expect(checkIcons.length).toBeGreaterThanOrEqual(2);
@@ -74,26 +74,26 @@ describe("AgentTimeline", () => {
 
   it("shows completed pipeline status when run is completed", () => {
     render(
-      <AgentTimeline events={[]} runStatus="completed" />
+      <AgentTimeline events={[]} currentStep={undefined} runStatus="completed" />
     );
     expect(screen.getByText("Pipeline complete")).toBeInTheDocument();
   });
 
   it("shows cancelled pipeline status when run is cancelled", () => {
     render(
-      <AgentTimeline events={[]} runStatus="cancelled" />
+      <AgentTimeline events={[]} currentStep={undefined} runStatus="cancelled" />
     );
     expect(screen.getByText("Pipeline cancelled")).toBeInTheDocument();
   });
 
   it("renders without events or props without crashing", () => {
-    render(<AgentTimeline events={[]} />);
+    render(<AgentTimeline events={[]} currentStep={undefined} runStatus={undefined} />);
     // Should have the header
     expect(screen.getByText("Agent Pipeline")).toBeInTheDocument();
   });
 
   it("does not show pipeline status text when status is running", () => {
-    render(<AgentTimeline events={[]} runStatus="running" />);
+    render(<AgentTimeline events={[]} currentStep={undefined} runStatus="running" />);
     expect(screen.queryByText("Pipeline complete")).not.toBeInTheDocument();
     expect(screen.queryByText("Pipeline cancelled")).not.toBeInTheDocument();
   });

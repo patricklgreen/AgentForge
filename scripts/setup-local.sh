@@ -133,14 +133,24 @@ cd ..
 
 # ─── Verify AWS Bedrock Access (optional) ────────────────────────────────────
 
+# Load environment variables from .env file if it exists
+if [ -f .env ]; then
+  set -a  # automatically export all variables
+  source .env
+  set +a  # stop automatically exporting
+fi
+
 if command -v aws >/dev/null 2>&1 && [ -n "${AWS_ACCESS_KEY_ID:-}" ]; then
   info "Checking AWS Bedrock model access..."
   MODELS=$(aws bedrock list-foundation-models \
     --region "${AWS_REGION:-us-east-1}" \
     --query 'modelSummaries[?contains(modelId,`claude-3-5`)].modelId' \
-    --output text 2>/dev/null || echo "")
+    --output text 2>/dev/null || echo "ERROR")
 
-  if echo "$MODELS" | grep -q "claude-3-5-sonnet"; then
+  if [ "$MODELS" = "ERROR" ]; then
+    warn "AWS credentials are set but may be expired or invalid"
+    warn "Please update your AWS credentials in .env"
+  elif echo "$MODELS" | grep -q "claude-3-5-sonnet"; then
     success "Claude 3.5 Sonnet access verified"
   else
     warn "Claude 3.5 Sonnet not found — enable in AWS Console → Bedrock → Model Access"

@@ -26,10 +26,10 @@ describe("RunWebSocket", () => {
 
   beforeEach(() => {
     vi.stubGlobal("WebSocket", MockWebSocket);
-    MockWebSocket.OPEN = 1;
-    MockWebSocket.CONNECTING = 0;
-    MockWebSocket.CLOSING = 2;
-    MockWebSocket.CLOSED = 3;
+    (MockWebSocket as any).OPEN = 1;
+    (MockWebSocket as any).CONNECTING = 0;
+    (MockWebSocket as any).CLOSING = 2;
+    (MockWebSocket as any).CLOSED = 3;
   });
 
   afterEach(() => {

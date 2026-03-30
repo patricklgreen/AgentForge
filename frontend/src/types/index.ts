@@ -58,7 +58,7 @@ export interface RunEvent {
   agent_name?: string;
   step?: string;
   message: string;
-  data?: Record<string,>;
+  data?: Record<string, any>;
   created_at: string;
 }
 
@@ -81,7 +81,7 @@ export interface ProjectRun {
 export interface HumanFeedback {
   action: "approve" | "reject" | "modify";
   feedback?: string;
-  modifications?: Record;
+  modifications?: Record<string, any>;
 }
 
 export interface FeedbackResponse {
@@ -170,7 +170,7 @@ export interface DownloadUrlResponse {
 }
 
 export interface RunStateResponse {
-  state: Record | null;
+  state: Record<string, any> | null;
 }
 
 // ─── Code / File Models ───────────────────────────────────────────────────────
@@ -401,6 +401,6 @@ export interface WsMessage {
   agent?: string;
   step?: string;
   message: string;
-  data?: Record;
+  data?: Record<string, any>;
   payload?: InterruptPayload;
 }

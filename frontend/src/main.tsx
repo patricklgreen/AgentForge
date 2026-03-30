@@ -9,7 +9,7 @@ if (!root) {
 }
 
 ReactDOM.createRoot(root).render(
-  <react.strictmode>
-    
-  
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
 );

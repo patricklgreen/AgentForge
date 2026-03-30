@@ -42,27 +42,27 @@ api.interceptors.response.use(
 
 export const projectsApi = {
   /** Create a new project */
-  create: (data: ProjectCreate): Promise =>
+  create: (data: ProjectCreate): Promise<Project> =>
     api.post("/projects/", data).then((r) => r.data),
 
   /** List projects with optional pagination */
-  list: (skip = 0, limit = 20): Promise =>
+  list: (skip = 0, limit = 20): Promise<Project[]> =>
     api.get(`/projects/?skip=${skip}&limit=${limit}`).then((r) => r.data),
 
   /** Get a project by ID */
-  get: (id: string): Promise =>
+  get: (id: string): Promise<Project> =>
     api.get(`/projects/${id}`).then((r) => r.data),
 
   /** Start a new agent pipeline run for a project */
-  startRun: (projectId: string): Promise =>
+  startRun: (projectId: string): Promise<ProjectRun> =>
     api.post(`/projects/${projectId}/runs`).then((r) => r.data),
 
   /** List all runs for a project */
-  listRuns: (projectId: string): Promise =>
+  listRuns: (projectId: string): Promise<ProjectRun[]> =>
     api.get(`/projects/${projectId}/runs`).then((r) => r.data),
 
   /** Get a specific run with its events */
-  getRun: (projectId: string, runId: string): Promise =>
+  getRun: (projectId: string, runId: string): Promise<ProjectRun> =>
     api.get(`/projects/${projectId}/runs/${runId}`).then((r) => r.data),
 
   /** Submit human review feedback to resume a paused run */
@@ -70,19 +70,19 @@ export const projectsApi = {
     projectId: string,
     runId: string,
     feedback: HumanFeedback
-  ): Promise =>
+  ): Promise<FeedbackResponse> =>
     api
       .post(`/projects/${projectId}/runs/${runId}/feedback`, feedback)
       .then((r) => r.data),
 
   /** Cancel a run that is paused at a human-review checkpoint */
-  cancelRun: (projectId: string, runId: string): Promise =>
+  cancelRun: (projectId: string, runId: string): Promise<CancelResponse> =>
     api
       .post(`/projects/${projectId}/runs/${runId}/cancel`)
       .then((r) => r.data),
 
   /** Get the full LangGraph state for a run (includes zip_url) */
-  getRunState: (projectId: string, runId: string): Promise =>
+  getRunState: (projectId: string, runId: string): Promise<RunStateResponse> =>
     api
       .get(`/projects/${projectId}/runs/${runId}/state`)
       .then((r) => r.data),
@@ -92,15 +92,15 @@ export const projectsApi = {
 
 export const artifactsApi = {
   /** List all artifacts for a project */
-  list: (projectId: string): Promise =>
+  list: (projectId: string): Promise<Artifact[]> =>
     api.get(`/artifacts/project/${projectId}`).then((r) => r.data),
 
   /** Get the raw content of an artifact */
-  getContent: (artifactId: string): Promise =>
+  getContent: (artifactId: string): Promise<ArtifactContent> =>
     api.get(`/artifacts/${artifactId}/content`).then((r) => r.data),
 
   /** Get a pre-signed S3 download URL for an artifact */
-  getDownloadUrl: (artifactId: string): Promise =>
+  getDownloadUrl: (artifactId: string): Promise<DownloadUrlResponse> =>
     api
       .get(`/artifacts/${artifactId}/download-url`)
       .then((r) => r.data),
@@ -113,10 +113,10 @@ type EventHandler = (data: unknown) => void;
 export class RunWebSocket {
   private ws: WebSocket | null = null;
   private readonly runId: string;
-  private listeners: Map = new Map();
+  private listeners: Map<string, EventHandler[]> = new Map();
   private reconnectAttempts = 0;
   private readonly maxReconnects = 5;
-  private reconnectTimer: ReturnType | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isManuallyDisconnected = false;
 
   constructor(runId: string) {
@@ -141,18 +141,18 @@ export class RunWebSocket {
         // Fire type-specific handlers
         if (msg.type) {
           const handlers = this.listeners.get(msg.type) ?? [];
-          handlers.forEach((h) => h(data));
+          handlers.forEach((h: EventHandler) => h(data));
         }
 
         // Fire wildcard handlers for every message
         const wildcardHandlers = this.listeners.get("*") ?? [];
-        wildcardHandlers.forEach((h) => h(data));
+        wildcardHandlers.forEach((h: EventHandler) => h(data));
       } catch (e) {
         console.error("[RunWebSocket] Failed to parse message:", e);
       }
     };
 
-    this.ws.onclose = (event: CloseEvent) => {
+    this.ws.onclose = () => {
       if (!this.isManuallyDisconnected && this.reconnectAttempts < this.maxReconnects) {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30_000);
         this.reconnectAttempts++;
@@ -160,8 +160,8 @@ export class RunWebSocket {
       }
     };
 
-    this.ws.onerror = (error: Event) => {
-      console.error("[RunWebSocket] Error:", error);
+    this.ws.onerror = () => {
+      console.error("[RunWebSocket] Connection error");
     };
   }
 
@@ -176,7 +176,7 @@ export class RunWebSocket {
     const handlers = this.listeners.get(eventType) ?? [];
     this.listeners.set(
       eventType,
-      handlers.filter((h) => h !== handler)
+      handlers.filter((h: EventHandler) => h !== handler)
     );
   }
 
