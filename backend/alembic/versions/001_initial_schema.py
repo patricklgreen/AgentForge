@@ -15,27 +15,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # ── Enums ──────────────────────────────────────────────────────────────
-    op.execute("""
-        DO $$ BEGIN
-            CREATE TYPE projectstatus AS ENUM (
-                'pending','running','waiting_review',
-                'completed','failed','cancelled'
-            );
-        EXCEPTION WHEN duplicate_object THEN null;
-        END $$;
-    """)
-
-    op.execute("""
-        DO $$ BEGIN
-            CREATE TYPE runstatus AS ENUM (
-                'pending','running','waiting_review',
-                'completed','failed','cancelled'
-            );
-        EXCEPTION WHEN duplicate_object THEN null;
-        END $$;
-    """)
-
     # ── projects ───────────────────────────────────────────────────────────
     op.create_table(
         "projects",
@@ -57,7 +36,6 @@ def upgrade() -> None:
                 "pending", "running", "waiting_review",
                 "completed", "failed", "cancelled",
                 name="projectstatus",
-                create_type=False,
             ),
             nullable=False,
             server_default="pending",
@@ -101,7 +79,6 @@ def upgrade() -> None:
                 "pending", "running", "waiting_review",
                 "completed", "failed", "cancelled",
                 name="runstatus",
-                create_type=False,
             ),
             nullable=False,
             server_default="pending",
