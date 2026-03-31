@@ -1,12 +1,16 @@
 import React from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Bot,
   LayoutDashboard,
   PlusCircle,
   Github,
+  User,
+  LogOut,
+  Settings,
 } from "lucide-react";
 import { clsx } from "clsx";
+import { useAppStore } from "../store";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -19,6 +23,18 @@ const navItems = [
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAppStore();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  // Don't show sidebar layout for auth pages
+  if (location.pathname === '/login' || location.pathname === '/register') {
+    return <>{children}</>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
@@ -54,8 +70,41 @@ export function Layout({ children }: LayoutProps) {
           })}
         </nav>
 
-        {/* Footer */}
+        {/* User Profile Section */}
         <div className="px-4 py-4 border-t border-gray-800 space-y-3">
+          {user && (
+            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-800">
+              <div className="h-8 w-8 bg-indigo-600 rounded-full flex items-center justify-center">
+                <User className="h-4 w-4 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">
+                  {user.full_name || user.username}
+                </p>
+                <p className="text-xs text-gray-400 truncate">
+                  {user.email}
+                </p>
+              </div>
+            </div>
+          )}
+          
+          <div className="flex gap-2">
+            <Link
+              to="/profile"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"
+            >
+              <Settings className="h-4 w-4" />
+              Settings
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-800 rounded-lg transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
+          
           <div className="flex items-center gap-2 text-xs text-green-400">
             <div className="h-2 w-2 bg-green-400 rounded-full"></div>
             Connected to AWS Bedrock

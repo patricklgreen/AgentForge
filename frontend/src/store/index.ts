@@ -1,7 +1,19 @@
 import { create } from "zustand";
 import type { Project, ProjectRun, WsMessage, RunEvent } from "../types";
+import type { User, LoginRequest, RegisterRequest } from "../api/client";
+import { authApi, tokenService } from "../api/client";
 
 interface AppState {
+  // Authentication
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (data: LoginRequest) => Promise<void>;
+  register: (data: RegisterRequest) => Promise<void>;
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<void>;
+  setUser: (user: User | null) => void;
+
   // Projects
   projects: Project[];
   setProjects: (projects: Project[]) => void;
@@ -26,7 +38,88 @@ interface AppState {
   setReviewModalOpen: (open: boolean) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
+  // ── Authentication ──────────────────────────────────────────────────────────
+  user: null,
+  isAuthenticated: false,
+  isLoading: false,
+
+  login: async (data: LoginRequest) => {
+    set({ isLoading: true });
+    try {
+      const response = await authApi.login(data);
+      tokenService.setTokens(response.access_token, response.refresh_token);
+      set({ 
+        user: response.user, 
+        isAuthenticated: true, 
+        isLoading: false 
+      });
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  register: async (data: RegisterRequest) => {
+    set({ isLoading: true });
+    try {
+      const user = await authApi.register(data);
+      set({ isLoading: false });
+      // Note: User needs to login after registration
+      return user;
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  logout: async () => {
+    try {
+      await authApi.logout();
+    } catch (error) {
+      // Continue with logout even if server request fails
+      console.warn("Logout request failed:", error);
+    } finally {
+      tokenService.clearTokens();
+      set({ 
+        user: null, 
+        isAuthenticated: false,
+        projects: [], // Clear user data
+        activeRun: null,
+        liveEvents: [],
+        selectedProjectId: null,
+      });
+    }
+  },
+
+  checkAuth: async () => {
+    const token = tokenService.getToken();
+    if (!token) {
+      set({ user: null, isAuthenticated: false });
+      return;
+    }
+
+    set({ isLoading: true });
+    try {
+      const user = await authApi.me();
+      set({ 
+        user, 
+        isAuthenticated: true, 
+        isLoading: false 
+      });
+    } catch (error) {
+      // Token is invalid, clear it
+      tokenService.clearTokens();
+      set({ 
+        user: null, 
+        isAuthenticated: false, 
+        isLoading: false 
+      });
+    }
+  },
+
+  setUser: (user: User | null) => set({ user, isAuthenticated: !!user }),
+
   // ── Projects ────────────────────────────────────────────────────────────────
   projects: [],
 

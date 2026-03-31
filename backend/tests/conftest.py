@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import (
 from app.main import app
 from app.database import Base, get_db
 
+# Import auth fixtures
+from tests.auth_fixtures import *  # noqa
+
 # ─── Test database ─────────────────────────────────────────────────────────────
 # Use a real PostgreSQL test DB to avoid SQLite dialect mismatches with
 # UUID columns, JSON columns, and PostgreSQL-specific enum types.

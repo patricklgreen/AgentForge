@@ -6,9 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.models.project import Artifact
+from app.models.project import Artifact, Project
+from app.models.auth import UserRole
 from app.schemas.project import ArtifactContent, ArtifactResponse, DownloadUrlResponse
 from app.services.s3 import s3_service
+from app.auth.dependencies import CurrentUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
@@ -17,8 +19,18 @@ router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 @router.get("/project/{project_id}", response_model=list[ArtifactResponse])
 async def get_project_artifacts(
     project_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[Artifact]:
+    # First check if user has access to the project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
     result = await db.execute(
         select(Artifact)
         .where(Artifact.project_id == project_id)
@@ -30,11 +42,22 @@ async def get_project_artifacts(
 @router.get("/{artifact_id}/content", response_model=ArtifactContent)
 async def get_artifact_content(
     artifact_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ArtifactContent:
     artifact = await db.get(Artifact, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
+    
+    # Check if user has access to the project that owns this artifact
+    project = await db.get(Project, artifact.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this artifact")
+    
     content = await s3_service.download_content(artifact.s3_key)
     return ArtifactContent(
         content=content,
@@ -46,10 +69,21 @@ async def get_artifact_content(
 @router.get("/{artifact_id}/download-url", response_model=DownloadUrlResponse)
 async def get_download_url(
     artifact_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> DownloadUrlResponse:
     artifact = await db.get(Artifact, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
+    
+    # Check if user has access to the project that owns this artifact
+    project = await db.get(Project, artifact.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this artifact")
+    
     url = await s3_service.get_presigned_url(artifact.s3_key)
     return DownloadUrlResponse(url=url)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db, AsyncSessionLocal
 from app.models.project import Project, ProjectRun, RunEvent, RunStatus, ProjectStatus
+from app.models.auth import UserRole
 from app.schemas.project import (
     ProjectCreate,
     ProjectResponse,
@@ -21,6 +22,7 @@ from app.schemas.project import (
 )
 from app.agents.orchestrator import AgentOrchestrator
 from app.config import get_settings
+from app.auth.dependencies import CurrentUser
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -46,10 +48,12 @@ async def get_orchestrator() -> AgentOrchestrator:
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     data: ProjectCreate,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> Project:
     """Create a new project."""
     project = Project(
+        user_id=user.id,
         name=data.name,
         description=data.description,
         requirements=data.requirements,
@@ -65,13 +69,18 @@ async def create_project(
 
 @router.get("/", response_model=list[ProjectResponse])
 async def list_projects(
+    user: CurrentUser,
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ) -> list[Project]:
-    """List all projects, newest first."""
+    """List user's projects, newest first."""
     result = await db.execute(
-        select(Project).order_by(desc(Project.created_at)).offset(skip).limit(limit)
+        select(Project)
+        .where(Project.user_id == user.id)
+        .order_by(desc(Project.created_at))
+        .offset(skip)
+        .limit(limit)
     )
     return list(result.scalars().all())
 
@@ -79,12 +88,18 @@ async def list_projects(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> Project:
     """Get a single project by ID."""
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
     return project
 
 
@@ -97,6 +112,7 @@ async def get_project(
 )
 async def start_project_run(
     project_id: uuid.UUID,
+    user: CurrentUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     orchestrator: AgentOrchestrator = Depends(get_orchestrator),
@@ -105,6 +121,10 @@ async def start_project_run(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
 
     thread_id = str(uuid.uuid4())
     run = ProjectRun(
@@ -135,9 +155,19 @@ async def start_project_run(
 @router.get("/{project_id}/runs", response_model=list[ProjectRunResponse])
 async def list_project_runs(
     project_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[ProjectRun]:
     """List all runs for a project, newest first."""
+    # First check if user has access to the project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
     result = await db.execute(
         select(ProjectRun)
         .where(ProjectRun.project_id == project_id)
@@ -151,9 +181,19 @@ async def list_project_runs(
 async def get_run(
     project_id: uuid.UUID,
     run_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ProjectRun:
     """Get a specific run with all its events."""
+    # First check if user has access to the project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
     result = await db.execute(
         select(ProjectRun)
         .where(ProjectRun.id == run_id, ProjectRun.project_id == project_id)
@@ -169,6 +209,7 @@ async def get_run(
 async def get_run_state(
     project_id: uuid.UUID,
     run_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     orchestrator: AgentOrchestrator = Depends(get_orchestrator),
 ) -> RunStateResponse:
@@ -178,6 +219,15 @@ async def get_run_state(
     Includes zip_url, specification, architecture, code_files, etc.
     The frontend calls this to retrieve the download URL after packaging.
     """
+    # First check if user has access to the project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
     result = await db.execute(
         select(ProjectRun).where(
             ProjectRun.id == run_id,
@@ -198,6 +248,7 @@ async def submit_human_feedback(
     project_id: uuid.UUID,
     run_id: uuid.UUID,
     feedback: HumanFeedback,
+    user: CurrentUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     orchestrator: AgentOrchestrator = Depends(get_orchestrator),
@@ -208,6 +259,15 @@ async def submit_human_feedback(
     The run must be in WAITING_REVIEW status.
     Actions: approve | modify | reject
     """
+    # First check if user has access to the project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
     result = await db.execute(
         select(ProjectRun).where(
             ProjectRun.id == run_id,
@@ -256,6 +316,7 @@ async def submit_human_feedback(
 async def cancel_run(
     project_id: uuid.UUID,
     run_id: uuid.UUID,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     orchestrator: AgentOrchestrator = Depends(get_orchestrator),
 ) -> CancelResponse:
@@ -265,6 +326,15 @@ async def cancel_run(
     Injects a reject action into the LangGraph interrupt, which routes
     to handle_rejection and terminates the pipeline gracefully.
     """
+    # First check if user has access to the project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
     result = await db.execute(
         select(ProjectRun).where(
             ProjectRun.id == run_id,
