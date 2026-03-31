@@ -2,8 +2,8 @@
 
 > AI-powered application builder — describe what you need, agents build it.
 
-[![CI/CD](https://github.com/your-org/agentforge/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/agentforge/actions)
-[![Coverage](https://codecov.io/gh/your-org/agentforge/branch/main/graph/badge.svg)](https://codecov.io/gh/your-org/agentforge)
+[![CI/CD](https://github.com/3Ci-Consulting/agentforge/actions/workflows/ci.yml/badge.svg)](https://github.com/3Ci-Consulting/agentforge/actions)
+[![Coverage](https://codecov.io/gh/3Ci-Consulting/agentforge/branch/main/graph/badge.svg)](https://codecov.io/gh/3Ci-Consulting/agentforge)
 [![Backend Tests](https://img.shields.io/badge/backend%20coverage-90%2B%25-green)](./backend/htmlcov/index.html)
 [![Frontend Tests](https://img.shields.io/badge/frontend%20tests-14%20suites-blue)](./frontend/src/__tests__)
 
