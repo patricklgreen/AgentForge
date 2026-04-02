@@ -132,6 +132,19 @@ def mock_ws_manager():
 
 
 @pytest.fixture
+def mock_email_service():
+    """Mock the email service."""
+    from unittest.mock import patch, AsyncMock
+    
+    with patch("app.services.email_service.create_email_service") as mock_factory:
+        mock_service = MagicMock()
+        mock_service.send_verification_email = AsyncMock(return_value=True)
+        mock_service.send_password_reset_email = AsyncMock(return_value=True)
+        mock_factory.return_value = mock_service
+        yield mock_service
+
+
+@pytest.fixture
 def mock_orchestrator():
     """Full orchestrator mock for route-level tests."""
     mock = MagicMock()

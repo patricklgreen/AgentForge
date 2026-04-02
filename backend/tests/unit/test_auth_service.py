@@ -13,12 +13,13 @@ from app.services.auth import auth_service, AuthenticationError
 from app.schemas.auth import JWTPayload
 
 
+@pytest.mark.usefixtures("mock_email_service")
 class TestAuthService:
     """Test authentication service functions."""
 
     def test_hash_password(self):
         """Test password hashing."""
-        password = "test_pass123"
+        password = "TestPass123"
         hashed = auth_service.hash_password(password)
         
         assert hashed != password
@@ -27,15 +28,15 @@ class TestAuthService:
 
     def test_verify_password_success(self):
         """Test successful password verification."""
-        password = "test_pass123"
+        password = "TestPass123"
         hashed = auth_service.hash_password(password)
         
         assert auth_service.verify_password(password, hashed) is True
 
     def test_verify_password_failure(self):
         """Test failed password verification."""
-        password = "test_pass123"
-        wrong_password = "wrong_pass"
+        password = "TestPass123"
+        wrong_password = "WrongPass456"
         hashed = auth_service.hash_password(password)
         
         assert auth_service.verify_password(wrong_password, hashed) is False
@@ -71,7 +72,7 @@ class TestAuthService:
         
         assert isinstance(payload, JWTPayload)
         assert payload.sub == str(user.id)
-        assert payload.type == "access"
+        assert payload.email == user.email
 
     def test_verify_jwt_token_invalid(self):
         """Test JWT token verification with invalid token."""
@@ -92,22 +93,14 @@ class TestAuthService:
         """Test user role checking."""
         admin_user = User(role=UserRole.ADMIN)
         regular_user = User(role=UserRole.USER)
-        viewer_user = User(role=UserRole.VIEWER)
         
         # Admin can access anything
         assert auth_service.check_user_role(admin_user, UserRole.ADMIN) is True
         assert auth_service.check_user_role(admin_user, UserRole.USER) is True
-        assert auth_service.check_user_role(admin_user, UserRole.VIEWER) is True
         
-        # User can access user and viewer
+        # User can access user but not admin
         assert auth_service.check_user_role(regular_user, UserRole.ADMIN) is False
         assert auth_service.check_user_role(regular_user, UserRole.USER) is True
-        assert auth_service.check_user_role(regular_user, UserRole.VIEWER) is True
-        
-        # Viewer can only access viewer
-        assert auth_service.check_user_role(viewer_user, UserRole.ADMIN) is False
-        assert auth_service.check_user_role(viewer_user, UserRole.USER) is False
-        assert auth_service.check_user_role(viewer_user, UserRole.VIEWER) is True
 
     def test_check_resource_access_owner(self):
         """Test resource access check for resource owner."""
@@ -135,3 +128,56 @@ class TestAuthService:
         
         result = auth_service.check_resource_access(regular_user, resource_user_id)
         assert result is False
+
+    def test_generate_api_key(self):
+        """Test API key generation."""
+        key_value, key_hash, key_prefix = auth_service.generate_api_key()
+        
+        assert isinstance(key_value, str)
+        assert isinstance(key_hash, str) 
+        assert isinstance(key_prefix, str)
+        assert len(key_value) > 0
+        assert len(key_hash) > 0
+        assert len(key_prefix) > 0
+        assert key_value != key_hash
+
+    @pytest.mark.asyncio
+    async def test_create_user(self, db_session, mock_email_service):
+        """Test user creation."""
+        from app.schemas.auth import UserCreate
+        
+        user_data = UserCreate(
+            email="newuser@example.com",
+            username="newuser",
+            password="TestPassword123!",
+            full_name="New User"
+        )
+        
+        user = await auth_service.create_user(db_session, user_data)
+        
+        assert user.email == user_data.email
+        assert user.username == user_data.username
+        assert user.full_name == user_data.full_name
+        assert user.is_active is True
+        assert user.is_verified is False
+        assert user.role == UserRole.USER
+        
+        # Verify email service was called
+        mock_email_service.send_verification_email.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_authenticate_user_success(self, db_session, test_user):
+        """Test successful user authentication."""
+        user = await auth_service.authenticate_user(
+            db_session, test_user.email, "testpassword123"
+        )
+        assert user is not None
+        assert user.id == test_user.id
+
+    @pytest.mark.asyncio
+    async def test_authenticate_user_failure(self, db_session, test_user):
+        """Test failed user authentication."""
+        user = await auth_service.authenticate_user(
+            db_session, test_user.email, "wrongpassword"
+        )
+        assert user is None

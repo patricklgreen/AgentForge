@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { BrowserRouter } from "react-router-dom";
 import { Profile } from "../../pages/Profile";
 import { useAppStore } from "../../store";
 import type { User } from "../../api/client";
@@ -8,6 +9,19 @@ import type { User } from "../../api/client";
 vi.mock("../../store", () => ({
   useAppStore: vi.fn(),
 }));
+
+// Mock EmailVerification component
+vi.mock("../../components/EmailVerification", () => ({
+  EmailVerification: () => <div>Email Verification Component</div>,
+}));
+
+const renderWithRouter = (component: React.ReactElement) => {
+  return render(
+    <BrowserRouter>
+      {component}
+    </BrowserRouter>
+  );
+};
 
 const mockUser: User = {
   id: "user-123",
@@ -32,7 +46,7 @@ describe("Profile Page", () => {
       user: null,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Loading user profile...")).toBeInTheDocument();
   });
@@ -42,7 +56,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("User Profile")).toBeInTheDocument();
     expect(screen.getByText("Test User")).toBeInTheDocument();
@@ -57,7 +71,7 @@ describe("Profile Page", () => {
       user: userWithoutFullName,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("testuser")).toBeInTheDocument();
     expect(screen.getByText("@testuser")).toBeInTheDocument();
@@ -68,7 +82,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("User")).toBeInTheDocument();
   });
@@ -80,7 +94,7 @@ describe("Profile Page", () => {
       user: adminUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Admin")).toBeInTheDocument();
   });
@@ -92,7 +106,7 @@ describe("Profile Page", () => {
       user: viewerUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Viewer")).toBeInTheDocument();
   });
@@ -102,7 +116,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText(/Member since/)).toBeInTheDocument();
     expect(screen.getByText(/1\/1\/2024/)).toBeInTheDocument();
@@ -113,7 +127,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText(/Last login:/)).toBeInTheDocument();
   });
@@ -125,7 +139,7 @@ describe("Profile Page", () => {
       user: userWithoutLastLogin,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.queryByText(/Last login:/)).not.toBeInTheDocument();
   });
@@ -135,7 +149,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     // Check for the heading, which should be unique
     expect(screen.getByRole("heading", { name: "Account Status" })).toBeInTheDocument();
@@ -147,7 +161,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Active")).toBeInTheDocument();
   });
@@ -159,7 +173,7 @@ describe("Profile Page", () => {
       user: inactiveUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Inactive")).toBeInTheDocument();
   });
@@ -169,7 +183,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Verified")).toBeInTheDocument();
   });
@@ -181,7 +195,7 @@ describe("Profile Page", () => {
       user: unverifiedUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Pending")).toBeInTheDocument();
   });
@@ -191,7 +205,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("Quick Actions")).toBeInTheDocument();
     expect(screen.getByText("Change Password")).toBeInTheDocument();
@@ -204,7 +218,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByText("🚀 Authentication System Implemented")).toBeInTheDocument();
     expect(screen.getByText(/The authentication system has been successfully integrated/)).toBeInTheDocument();
@@ -215,7 +229,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     // Check that avatar circle with user icon exists
     const avatarContainer = document.querySelector('.bg-indigo-600');
@@ -227,7 +241,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     expect(screen.getByRole("heading", { level: 1, name: "User Profile" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Test User" })).toBeInTheDocument();
@@ -240,7 +254,7 @@ describe("Profile Page", () => {
       user: mockUser,
     });
 
-    render(<Profile />);
+    renderWithRouter(<Profile />);
 
     const changePasswordButton = screen.getByText("Change Password");
     const manageApiKeysButton = screen.getByText("Manage API Keys");
