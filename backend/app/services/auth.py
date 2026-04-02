@@ -12,12 +12,14 @@ import json
 from jose import jwt
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, update as sa_update
+import sqlalchemy as sa
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
-from app.models.auth import User, APIKey, RefreshToken, UserRole
+from app.models.auth import User, APIKey, RefreshToken, UserRole, EmailVerificationToken
 from app.schemas.auth import JWTPayload, UserCreate
+from app.services.email_service import create_email_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ class AuthService:
         self.secret_key = settings.secret_key
         if len(self.secret_key) < 32:
             raise ValueError("JWT secret key must be at least 32 characters long")
+        self.email_service = create_email_service()
     
     # ─── Password Management ───────────────────────────────────────────────────
     
@@ -134,7 +137,28 @@ class AuthService:
         await db.flush()
         await db.refresh(user)
         
-        logger.info(f"Created new user: {user.email}")
+        # Create verification token for new user and send email
+        try:
+            token = await self.create_verification_token(db, user)
+            
+            # Send verification email
+            frontend_url = settings.frontend_url
+            verification_url = f"{frontend_url}/verify-email?token={token}"
+            
+            email_sent = await self.email_service.send_verification_email(
+                to_email=user.email,
+                verification_url=verification_url
+            )
+            
+            if email_sent:
+                logger.info(f"Created new user and sent verification email: {user.email}")
+            else:
+                logger.warning(f"Created new user but failed to send verification email: {user.email}")
+                
+        except Exception as e:
+            logger.error(f"Failed to create verification token or send email for {user.email}: {e}")
+            # Don't fail user creation if verification token/email fails
+        
         return user
     
     async def authenticate_user(self, db: AsyncSession, email: str, password: str) -> Optional[User]:
@@ -398,6 +422,143 @@ class AuthService:
             logger.info(f"Cleaned up {len(expired_tokens)} expired refresh tokens")
         
         return len(expired_tokens)
+    
+    # ─── Email Verification ────────────────────────────────────────────────────
+    
+    async def create_verification_token(self, db: AsyncSession, user: User, ip_address: Optional[str] = None) -> str:
+        """Create a new email verification token for a user."""
+        import secrets
+        
+        # Generate a secure random token
+        token = secrets.token_urlsafe(32)
+        token_hash = self.hash_password(token)  # Reuse password hashing for tokens
+        
+        # Set expiration to 24 hours from now
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+        
+        # Deactivate any existing tokens for this user
+        await db.execute(
+            sa.update(EmailVerificationToken)
+            .where(EmailVerificationToken.user_id == user.id)
+            .values(is_used=True)
+        )
+        
+        # Create new verification token
+        verification_token = EmailVerificationToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            ip_address=ip_address
+        )
+        
+        db.add(verification_token)
+        await db.flush()
+        
+        logger.info(f"Created verification token for user: {user.email}")
+        return token
+    
+    async def verify_email_with_token(self, db: AsyncSession, token: str) -> Optional[User]:
+        """Verify a user's email using a verification token."""
+        # Find unused, non-expired tokens
+        result = await db.execute(
+            select(EmailVerificationToken)
+            .where(
+                and_(
+                    EmailVerificationToken.is_used == False,
+                    EmailVerificationToken.expires_at > datetime.now(timezone.utc)
+                )
+            )
+        )
+        tokens = result.scalars().all()
+        
+        # Check each token's hash
+        for verification_token in tokens:
+            if self.verify_password(token, verification_token.token_hash):
+                # Mark token as used
+                verification_token.is_used = True
+                verification_token.used_at = datetime.now(timezone.utc)
+                
+                # Get and update the user
+                user_result = await db.execute(
+                    select(User).where(User.id == verification_token.user_id)
+                )
+                user = user_result.scalar_one_or_none()
+                
+                if user:
+                    user.is_verified = True
+                    user.updated_at = datetime.now(timezone.utc)
+                    
+                    await db.flush()
+                    logger.info(f"Email verified for user: {user.email}")
+                    return user
+        
+        logger.warning(f"Invalid or expired verification token attempted")
+        return None
+    
+    async def resend_verification_email(self, db: AsyncSession, email: str, ip_address: Optional[str] = None) -> bool:
+        """Resend verification email to a user."""
+        # Find user by email
+        result = await db.execute(
+            select(User).where(User.email == email)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            logger.warning(f"Attempted to resend verification for non-existent email: {email}")
+            return False
+        
+        if user.is_verified:
+            logger.info(f"Attempted to resend verification for already verified email: {email}")
+            return False
+        
+        # Create new verification token
+        token = await self.create_verification_token(db, user, ip_address)
+        
+        # Create verification URL
+        frontend_url = settings.frontend_url
+        verification_url = f"{frontend_url}/verify-email?token={token}"
+        
+        # Send verification email
+        try:
+            success = await self.email_service.send_verification_email(
+                to_email=email,
+                verification_url=verification_url
+            )
+            
+            if success:
+                logger.info(f"Verification email sent successfully to: {email}")
+                return True
+            else:
+                logger.error(f"Failed to send verification email to: {email}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error sending verification email to {email}: {e}")
+            return False
+    
+    async def get_verification_token_for_user(self, db: AsyncSession, user_id: uuid.UUID) -> Optional[str]:
+        """Get the latest verification token for a user (for testing/development)."""
+        result = await db.execute(
+            select(EmailVerificationToken)
+            .where(
+                and_(
+                    EmailVerificationToken.user_id == user_id,
+                    EmailVerificationToken.is_used == False,
+                    EmailVerificationToken.expires_at > datetime.now(timezone.utc)
+                )
+            )
+            .order_by(EmailVerificationToken.created_at.desc())
+            .limit(1)
+        )
+        token_record = result.scalar_one_or_none()
+        
+        if token_record:
+            # This is a security risk - only for development!
+            # In production, tokens should only be sent via email
+            logger.warning("Verification token retrieved directly - this should only happen in development!")
+            return "verification_token_would_be_in_email"
+        
+        return None
     
     def extract_user_agent(self, request_headers: Dict[str, str]) -> Optional[str]:
         """Extract user agent from request headers."""

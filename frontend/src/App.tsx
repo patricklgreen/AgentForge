@@ -8,6 +8,7 @@ import { ProjectDetail } from "./pages/ProjectDetail";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { Profile } from "./pages/Profile";
+import { EmailVerificationPage } from "./pages/EmailVerificationPage";
 import { NotFound } from "./pages/NotFound";
 import { useAppStore } from "./store";
 import { useEffect } from "react";
@@ -54,6 +55,10 @@ export default function App() {
                   <Register />
                 </PublicOnlyRoute>
               }
+            />
+            <Route
+              path="/verify-email"
+              element={<EmailVerificationPage />}
             />
 
             {/* Protected routes (require authentication) */}

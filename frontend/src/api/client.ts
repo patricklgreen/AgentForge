@@ -224,6 +224,22 @@ export const artifactsApi = {
       .then((r) => r.data),
 };
 
+// ─── Email Verification API ─────────────────────────────────────────
+
+export const emailVerificationApi = {
+  /** Send email verification */
+  sendVerificationEmail: (email: string): Promise<{success: boolean; message: string}> =>
+    api.post("/auth/verify/send", { email }).then((r) => r.data),
+
+  /** Confirm email verification with token */
+  confirmEmailVerification: (token: string): Promise<{message: string; is_verified: boolean}> =>
+    api.post("/auth/verify/confirm", { token }).then((r) => r.data),
+
+  /** Get current user's verification status */
+  getVerificationStatus: (): Promise<{is_verified: boolean; email: string; has_pending_verification: boolean}> =>
+    api.get("/auth/verify/status").then((r) => r.data),
+};
+
 // ─── WebSocket Client ─────────────────────────────────────────────────────────
 
 type EventHandler = (data: unknown) => void;

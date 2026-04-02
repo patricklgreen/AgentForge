@@ -41,6 +41,7 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
           aws_secretsmanager_secret.db_sync_url.arn,
           aws_secretsmanager_secret.redis_url.arn,
           aws_secretsmanager_secret.app_secret.arn,
+          aws_secretsmanager_secret.ses_config.arn,
         ]
       },
       {
@@ -122,6 +123,22 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           "arn:${data.aws_partition.current.partition}:bedrock:${var.aws_region}::foundation-model/anthropic.claude-3-*",
         ]
       },
+      # SES email sending
+      {
+        Sid    = "SESEmailSending"
+        Effect = "Allow"
+        Action = [
+          "ses:SendEmail",
+          "ses:SendRawEmail",
+          "ses:SendTemplatedEmail",
+          "ses:SendBulkTemplatedEmail",
+          "ses:GetSendQuota",
+          "ses:GetSendStatistics",
+          "ses:GetIdentityVerificationAttributes",
+          "ses:GetIdentityDkimAttributes"
+        ]
+        Resource = "*"
+      },
       # CloudWatch Logs
       {
         Sid    = "CloudWatchLogs"
@@ -143,6 +160,7 @@ resource "aws_iam_role_policy" "ecs_task_permissions" {
           aws_secretsmanager_secret.db_sync_url.arn,
           aws_secretsmanager_secret.redis_url.arn,
           aws_secretsmanager_secret.app_secret.arn,
+          aws_secretsmanager_secret.ses_config.arn,
         ]
       }
     ]

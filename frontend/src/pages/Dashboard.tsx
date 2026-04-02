@@ -14,6 +14,8 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { clsx } from "clsx";
 import { projectsApi } from "../api/client";
+import { useAppStore } from "../store";
+import { VerificationBanner } from "../components/VerificationBanner";
 import type { ProjectStatus } from "../types";
 
 // ─── Status Configuration ──────────────────────────────────────────────────────
@@ -63,6 +65,7 @@ const STATUS_CONFIG: Record<
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
+  const { user } = useAppStore();
   const {
     data: projects = [],
     isLoading,
@@ -83,6 +86,9 @@ export function Dashboard() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-8 max-w-5xl mx-auto">
+        {/* Verification Banner */}
+        {user && <VerificationBanner user={user} />}
+        
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>

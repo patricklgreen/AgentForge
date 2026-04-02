@@ -37,7 +37,10 @@ from app.schemas.auth import (
     APIKeyResponse,
     APIKeyCreateResponse,
     StatusResponse,
-    RoleUpdateRequest
+    RoleUpdateRequest,
+    EmailVerificationRequest,
+    EmailVerificationConfirm,
+    EmailVerificationResponse
 )
 from app.services.auth import auth_service, AuthenticationError
 import logging
@@ -512,3 +515,108 @@ async def deactivate_user(
         success=True,
         message="User account deactivated"
     )
+
+
+# ─── Email Verification ──────────────────────────────────────────────────────
+
+@router.post("/verify/send", response_model=StatusResponse)
+async def send_verification_email(
+    request_data: EmailVerificationRequest,
+    request: Request,
+    db: DatabaseSession
+) -> StatusResponse:
+    """
+    Send email verification link to user.
+    """
+    try:
+        ip_address = auth_service.extract_ip_address(dict(request.headers))
+        success = await auth_service.resend_verification_email(
+            db, request_data.email, ip_address
+        )
+        
+        if success:
+            await db.commit()
+            return StatusResponse(
+                success=True,
+                message="Verification email sent (if email exists)"
+            )
+        else:
+            # Don't reveal whether email exists for security
+            return StatusResponse(
+                success=True,
+                message="Verification email sent (if email exists)"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error sending verification email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send verification email"
+        )
+
+
+@router.post("/verify/confirm", response_model=EmailVerificationResponse)
+async def confirm_email_verification(
+    verification_data: EmailVerificationConfirm,
+    request: Request,
+    db: DatabaseSession
+) -> EmailVerificationResponse:
+    """
+    Confirm email verification using token from email.
+    """
+    try:
+        user = await auth_service.verify_email_with_token(db, verification_data.token)
+        
+        if user:
+            await db.commit()
+            
+            await log_security_event(
+                request, user, "email_verified", 
+                {"email": user.email}
+            )
+            
+            return EmailVerificationResponse(
+                message="Email verified successfully!",
+                is_verified=True
+            )
+        else:
+            await log_security_event(
+                request, None, "email_verification_failed", 
+                {"reason": "invalid_or_expired_token"},
+                severity="warning"
+            )
+            
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired verification token"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error confirming email verification: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify email"
+        )
+
+
+@router.get("/verify/status", response_model=dict)
+async def get_verification_status(
+    user: CurrentUser,
+    db: DatabaseSession
+) -> dict:
+    """
+    Get current user's email verification status.
+    """
+    # Check if user has any pending verification tokens
+    has_pending_token = False
+    if not user.is_verified:
+        token = await auth_service.get_verification_token_for_user(db, user.id)
+        has_pending_token = token is not None
+    
+    return {
+        "is_verified": user.is_verified,
+        "email": user.email,
+        "has_pending_verification": has_pending_token
+    }

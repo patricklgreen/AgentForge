@@ -52,6 +52,8 @@ make dev-up
 # Open http://localhost:3000
 ```
 
+**📧 Email Verification**: Email verification is automatically configured for local development. When you register users or click "Send Verification Email", check the Docker logs with `docker compose logs backend -f` to see verification links. See [Local Email Setup Guide](LOCAL_EMAIL_SETUP.md) for details.
+
 ### Required AWS Permissions
 
 Your AWS credentials need access to Bedrock and S3:
@@ -139,21 +141,29 @@ cp infrastructure/terraform/terraform.tfvars.example \
 # Edit terraform.tfvars with your values:
 #   - domain_name = "yourdomain.com" 
 #   - db_password = "your-strong-password"
+#   - ses_domain = "yourdomain.com"  # For email verification
 #   - allowed_origins = ["https://yourdomain.com"]
 
-# 3. Deploy infrastructure
+# 3. Deploy infrastructure (includes AWS SES for email)
 export TF_VAR_db_password="your-strong-password"
 export TF_VAR_secret_key="$(openssl rand -hex 32)"
 make infra-apply
 
-# 4. Build and push Docker images
+# 4. Configure AWS SES (see infrastructure/terraform/SES_SETUP_GUIDE.md)
+#    - Verify domain in AWS SES Console
+#    - Add DNS records for DKIM/SPF
+#    - Request production access
+
+# 5. Build and push Docker images
 make push ENVIRONMENT=prod
 
-# 5. Deploy application (automated via CI/CD)
+# 6. Deploy application (automated via CI/CD)
 # Deployments happen automatically on:
 #   - Push to main branch → latest deployment
 #   - Tagged release → versioned deployment
 ```
+
+**📧 Email Service**: The infrastructure automatically configures AWS SES for production email delivery. See the [SES Setup Guide](infrastructure/terraform/SES_SETUP_GUIDE.md) for domain verification and DNS configuration.
 
 ### CI/CD Pipeline Features
 - **Automated testing** with 90% coverage enforcement
@@ -177,6 +187,7 @@ make push ENVIRONMENT=prod
 - **API key support** for programmatic access
 - **Role-based access control** (User, Admin roles)
 - **User registration and profile management**
+- **Email verification system** with customizable backends (console, file, SMTP, AWS SES)
 - **Session management** with automatic token refresh
 - **Security event logging** for audit trails
 
@@ -336,6 +347,28 @@ agentforge/
 - **Testing**: Jest/Vitest (frontend), pytest (backend)
 - **Coverage**: 90%+ enforced in CI/CD pipeline
 - **Security**: Trivy scanning, dependency updates, secure defaults
+
+## 📖 Documentation
+
+### Setup & Configuration Guides
+- **[Local Email Verification Setup](LOCAL_EMAIL_SETUP.md)** - How to configure and use email verification in development
+- **[Frontend Email Verification Components](VERIFICATION_COMPONENTS.md)** - Complete guide to the email verification UI components
+- **[AWS SES Production Setup](infrastructure/terraform/SES_SETUP_GUIDE.md)** - Production email service configuration with AWS SES
+- **[Infrastructure Deployment Guide](infrastructure/README.md)** - Complete AWS infrastructure setup and deployment
+
+### Quick Reference
+- **Email Verification (Development)**: Set `EMAIL_BACKEND=console` and check Docker logs for verification links
+- **Email Verification (Production)**: Configure AWS SES with domain verification and production access
+- **Infrastructure**: Use Terraform to deploy scalable AWS infrastructure with ECS, RDS, and SES
+- **Frontend Components**: Pre-built React components for email verification workflows
+
+### Development Workflow Documentation
+Each markdown file includes:
+- ✅ Step-by-step setup instructions
+- ✅ Configuration examples and templates  
+- ✅ Troubleshooting guides and common issues
+- ✅ Production vs development differences
+- ✅ Integration examples and code samples
 
 ### Contributing
 

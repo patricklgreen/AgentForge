@@ -49,6 +49,9 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    
+    # Frontend
+    frontend_url: str = "http://localhost:3000"
 
     def get_cors_origins_list(self) -> list[str]:
         """Convert CORS origins string to list"""

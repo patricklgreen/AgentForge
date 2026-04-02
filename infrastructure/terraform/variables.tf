@@ -193,6 +193,44 @@ variable "github_repo" {
   default     = "agentforge"
 }
 
+# ─── Email Service (SES) ──────────────────────────────────────────────────────
+
+variable "ses_domain" {
+  description = "Domain name for SES email sending (leave empty to use individual email identity)"
+  type        = string
+  default     = ""
+}
+
+variable "ses_from_email" {
+  description = "Email address to send emails from (use when not using domain identity)"
+  type        = string
+  default     = ""
+}
+
+variable "ses_from_name" {
+  description = "Display name for email sender"
+  type        = string
+  default     = "AgentForge"
+}
+
+variable "ses_mail_from_domain" {
+  description = "Custom MAIL FROM domain for SES (optional, improves deliverability)"
+  type        = string
+  default     = ""
+}
+
+variable "enable_ses_monitoring" {
+  description = "Enable CloudWatch monitoring and alarms for SES"
+  type        = bool
+  default     = true
+}
+
+variable "ses_alarm_topic_arn" {
+  description = "SNS topic ARN for SES alarms (optional)"
+  type        = string
+  default     = ""
+}
+
 # ─── Tagging ──────────────────────────────────────────────────────────────────
 
 variable "additional_tags" {

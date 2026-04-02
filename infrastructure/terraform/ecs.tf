@@ -115,6 +115,10 @@ resource "aws_ecs_task_definition" "backend" {
           name      = "SECRET_KEY"
           valueFrom = aws_secretsmanager_secret.app_secret.arn
         },
+        {
+          name      = "SES_CONFIG"
+          valueFrom = aws_secretsmanager_secret.ses_config.arn
+        },
       ]
 
       logConfiguration = {

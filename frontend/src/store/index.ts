@@ -12,6 +12,7 @@ interface AppState {
   register: (data: RegisterRequest) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   setUser: (user: User | null) => void;
 
   // Projects
@@ -38,7 +39,7 @@ interface AppState {
   setReviewModalOpen: (open: boolean) => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set) => ({
   // ── Authentication ──────────────────────────────────────────────────────────
   user: null,
   isAuthenticated: false,
@@ -63,10 +64,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   register: async (data: RegisterRequest) => {
     set({ isLoading: true });
     try {
-      const user = await authApi.register(data);
+      await authApi.register(data);
       set({ isLoading: false });
       // Note: User needs to login after registration
-      return user;
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -119,6 +119,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setUser: (user: User | null) => set({ user, isAuthenticated: !!user }),
+
+  refreshUser: async () => {
+    const token = tokenService.getToken();
+    if (!token) {
+      return;
+    }
+
+    try {
+      const user = await authApi.me();
+      set({ user, isAuthenticated: true });
+    } catch (error) {
+      // If refresh fails, don't clear auth - user might be temporarily offline
+      console.error('Failed to refresh user data:', error);
+    }
+  },
 
   // ── Projects ────────────────────────────────────────────────────────────────
   projects: [],

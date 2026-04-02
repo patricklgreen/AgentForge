@@ -154,6 +154,43 @@ output "backend_security_group_id" {
   value       = aws_security_group.backend.id
 }
 
+# ─── SES ──────────────────────────────────────────────────────────────────────
+
+output "ses_domain_identity" {
+  description = "SES domain identity (if configured)"
+  value       = var.ses_domain != "" ? aws_ses_domain_identity.main[0].domain : null
+}
+
+output "ses_from_email" {
+  description = "Email address configured for sending (domain or individual email)"
+  value       = var.ses_from_email != "" ? var.ses_from_email : (var.ses_domain != "" ? "noreply@${var.ses_domain}" : null)
+}
+
+output "ses_configuration_set_name" {
+  description = "SES configuration set name for tracking and metrics"
+  value       = aws_ses_configuration_set.main.name
+}
+
+output "ses_email_verification_template" {
+  description = "SES template name for email verification"
+  value       = aws_ses_template.email_verification.name
+}
+
+output "ses_password_reset_template" {
+  description = "SES template name for password reset"
+  value       = aws_ses_template.password_reset.name
+}
+
+output "ses_config_secret_arn" {
+  description = "Secrets Manager ARN for SES configuration"
+  value       = aws_secretsmanager_secret.ses_config.arn
+}
+
+output "ses_cloudwatch_log_group" {
+  description = "CloudWatch log group for SES events"
+  value       = aws_cloudwatch_log_group.ses.name
+}
+
 # ─── Account Info ─────────────────────────────────────────────────────────────
 
 output "aws_account_id" {

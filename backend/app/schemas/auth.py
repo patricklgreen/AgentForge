@@ -220,3 +220,19 @@ class StatusResponse(BaseModel):
     success: bool
     message: str
     details: Optional[dict] = None
+
+
+class EmailVerificationRequest(BaseModel):
+    """Request to send email verification."""
+    email: str = Field(..., description="Email address to send verification to")
+
+
+class EmailVerificationConfirm(BaseModel):
+    """Confirm email verification with token."""
+    token: str = Field(..., description="Verification token from email")
+
+
+class EmailVerificationResponse(BaseModel):
+    """Response after email verification."""
+    message: str
+    is_verified: bool
