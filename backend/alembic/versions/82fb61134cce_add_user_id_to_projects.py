@@ -18,18 +18,36 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add user_id column to projects table
-    op.add_column(
-        "projects",
-        sa.Column(
-            "user_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="CASCADE"),
-            nullable=True,  # Allow NULL initially for existing projects
-        ),
-    )
+    # Check if user_id column already exists
+    conn = op.get_bind()
+    result = conn.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'projects' AND column_name = 'user_id'
+    """))
+    
+    if not result.fetchone():
+        # Add user_id column to projects table only if it doesn't exist
+        op.add_column(
+            "projects",
+            sa.Column(
+                "user_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                nullable=True,  # Allow NULL initially for existing projects
+            ),
+        )
 
 
 def downgrade() -> None:
-    # Remove user_id column from projects table
-    op.drop_column("projects", "user_id")
+    # Check if user_id column exists before trying to drop it
+    conn = op.get_bind()
+    result = conn.execute(sa.text("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'projects' AND column_name = 'user_id'
+    """))
+    
+    if result.fetchone():
+        # Remove user_id column from projects table only if it exists
+        op.drop_column("projects", "user_id")
