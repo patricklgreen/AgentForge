@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAppStore } from "../../store";
-import type { Project, ProjectRun, WsMessage, RunEvent } from "../../types";
+import type { Project, ProjectRun, WsMessage } from "../../types";
 
 const mockProject: Project = {
   id: "project-123",
@@ -21,10 +21,10 @@ const mockProjectRun: ProjectRun = {
   thread_id: "thread-123",
   status: "running",
   current_step: "requirements_analysis",
-  interrupt_payload: null,
-  error_message: null,
+  interrupt_payload: undefined,
+  error_message: undefined,
   started_at: "2024-01-01T00:00:00Z",
-  completed_at: null,
+  completed_at: undefined,
   created_at: "2024-01-01T00:00:00Z",
   events: [],
 };

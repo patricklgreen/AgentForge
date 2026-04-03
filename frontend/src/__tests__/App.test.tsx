@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import App from "../../App";
-import { useAppStore } from "../../store";
+import App from "../App";
+import { useAppStore } from "../store";
 
 // Mock the store
-vi.mock("../../store", () => ({
+vi.mock("../store", () => ({
   useAppStore: vi.fn(),
 }));
 

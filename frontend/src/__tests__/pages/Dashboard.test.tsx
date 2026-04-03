@@ -1,5 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
 
 describe("Dashboard Page", () => {
   it("should export Dashboard component", async () => {

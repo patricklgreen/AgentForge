@@ -1,12 +1,17 @@
-"""
-Tests for Email Verification Components
-"""
+/**
+ * Tests for Email Verification Components
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { EmailVerification } from '../../components/EmailVerification'
 import { EmailVerificationPage } from '../../pages/EmailVerificationPage'
 import * as api from '../../api/client'
+
+const mockUser = {
+  email: 'test@example.com',
+  is_verified: false,
+}
 
 // Mock the API
 vi.mock('../../api/client', () => ({
@@ -21,11 +26,7 @@ vi.mock('../../api/client', () => ({
 const mockRefreshUser = vi.fn()
 vi.mock('../../store', () => ({
   useAppStore: () => ({
-    user: {
-      id: '123',
-      email: 'test@example.com',
-      is_verified: false,
-    },
+    user: mockUser,
     refreshUser: mockRefreshUser,
   }),
 }))
@@ -50,7 +51,7 @@ describe('EmailVerification Component', () => {
       has_pending_verification: false,
     })
 
-    renderWithRouter(<EmailVerification />)
+    renderWithRouter(<EmailVerification user={mockUser} />)
 
     await waitFor(() => {
       expect(screen.getByText(/Email verification/)).toBeInTheDocument()
@@ -64,7 +65,7 @@ describe('EmailVerification Component', () => {
       has_pending_verification: false,
     })
 
-    renderWithRouter(<EmailVerification />)
+    renderWithRouter(<EmailVerification user={mockUser} />)
 
     await waitFor(() => {
       expect(screen.getByText(/verified/i)).toBeInTheDocument()
@@ -83,7 +84,7 @@ describe('EmailVerification Component', () => {
       message: 'Verification email sent',
     })
 
-    renderWithRouter(<EmailVerification />)
+    renderWithRouter(<EmailVerification user={mockUser} />)
 
     await waitFor(() => {
       const sendButton = screen.getByText(/send verification email/i)
@@ -110,7 +111,7 @@ describe('EmailVerification Component', () => {
       message: 'Verification email sent',
     })
 
-    renderWithRouter(<EmailVerification />)
+    renderWithRouter(<EmailVerification user={mockUser} />)
 
     await waitFor(() => {
       const sendButton = screen.getByText(/send verification email/i)
@@ -133,7 +134,7 @@ describe('EmailVerification Component', () => {
       new Error('Failed to send email')
     )
 
-    renderWithRouter(<EmailVerification />)
+    renderWithRouter(<EmailVerification user={mockUser} />)
 
     await waitFor(() => {
       const sendButton = screen.getByText(/send verification email/i)
