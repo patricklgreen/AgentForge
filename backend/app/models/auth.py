@@ -3,17 +3,17 @@ Authentication models for user management and access control.
 """
 import uuid
 from datetime import datetime, timezone
-from enum import Enum
+from enum import Enum as PyEnum
 from typing import Optional
 
-from sqlalchemy import String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import String, DateTime, Boolean, Text, ForeignKey, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
 
 
-class UserRole(str, Enum):
+class UserRole(str, PyEnum):
     """User roles for access control."""
     ADMIN = "admin"
     USER = "user"
@@ -29,7 +29,11 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[Optional[str]] = mapped_column(String(200))
-    role: Mapped[UserRole] = mapped_column(String(50), default=UserRole.USER, nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        Enum("admin", "user", "viewer", name="userrole", native_enum=False), 
+        default=UserRole.USER, 
+        nullable=False
+    )
     
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

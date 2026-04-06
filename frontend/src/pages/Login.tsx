@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../store';
+import { useToast } from '../components/Toast';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -8,11 +9,26 @@ export function Login() {
   const [error, setError] = useState('');
   
   const { login, isLoading } = useAppStore();
+  const { success: showSuccessToast, ToastContainer } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
   // Get the redirect path from location state, default to dashboard
   const from = (location.state as any)?.from?.pathname || '/';
+  
+  // Check for success message from registration
+  useEffect(() => {
+    const message = (location.state as any)?.message;
+    if (message && message.includes('Registration successful')) {
+      showSuccessToast(
+        'Account Created Successfully!',
+        'Your account has been created. You can now sign in.',
+        5000
+      );
+      // Clear the state to prevent showing the toast again on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, showSuccessToast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +48,7 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 text-gray-900">
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
@@ -119,6 +135,9 @@ export function Login() {
           </div>
         </form>
       </div>
+      
+      {/* Toast Notifications */}
+      <ToastContainer />
     </div>
   );
 }

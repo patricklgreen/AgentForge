@@ -147,7 +147,8 @@ class TestSMTPEmailBackend:
             result = await backend.send_email(
                 to_email="test@example.com",
                 subject="Test",
-                html_body="<p>Test</p>"
+                html_body="<p>Test</p>",
+                from_email="sender@example.com"  # Provide from_email explicitly
             )
             
             assert result is True
@@ -261,6 +262,64 @@ class TestEmailServiceFactory:
 
 class TestEmailServiceIntegration:
     """Integration tests for email service with auth service."""
+
+    @pytest.mark.asyncio
+    async def test_ses_backend_coverage(self):
+        """Test SES backend initialization and error handling."""
+        with patch.dict(os.environ, {
+            "EMAIL_BACKEND": "ses",
+            "AWS_REGION": "us-east-1"
+        }):
+            service = create_email_service()
+            # This will create a SES backend but we can't easily test it without AWS credentials
+            assert service.backend is not None
+
+    @pytest.mark.asyncio
+    async def test_email_service_send_email_error_handling(self):
+        """Test email service error handling."""
+        mock_backend = AsyncMock()
+        mock_backend.send_email.return_value = False  # Simulate failure
+        
+        service = EmailService(backend=mock_backend)
+        
+        result = await service.send_verification_email(
+            "test@example.com",
+            "http://example.com/verify?token=abc123"
+        )
+        
+        assert result is False
+
+    @pytest.mark.asyncio  
+    async def test_email_service_with_custom_templates(self):
+        """Test email service with custom template rendering."""
+        mock_backend = AsyncMock()
+        mock_backend.send_email.return_value = True
+        
+        service = EmailService(backend=mock_backend)
+        
+        # Test that templates are rendered with variables
+        await service.send_verification_email(
+            "user@test.com", 
+            "https://app.example.com/verify?token=test123"
+        )
+        
+        # Verify the template was rendered correctly
+        call_args = mock_backend.send_email.call_args
+        html_body = call_args[1]["html_body"]
+        text_body = call_args[1]["text_body"]
+        
+        assert "https://app.example.com/verify?token=test123" in html_body
+        assert "https://app.example.com/verify?token=test123" in text_body
+        assert "user@test.com" in html_body
+
+    def test_create_service_with_default_values(self):
+        """Test creating service with default environment values."""
+        # Test with minimal environment - defaults come from settings file
+        with patch.dict(os.environ, {}, clear=True):
+            service = create_email_service()
+            # Defaults are set based on environment or None
+            assert service.backend is not None
+            assert isinstance(service.backend, ConsoleEmailBackend)
 
     @pytest.mark.asyncio
     async def test_email_service_called_during_user_creation(self, db_session):

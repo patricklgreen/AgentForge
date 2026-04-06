@@ -119,14 +119,14 @@ async def test_refresh_token(db_session: AsyncSession, test_user: User) -> Refre
 @pytest.fixture
 def auth_headers(test_user: User) -> dict:
     """Generate JWT auth headers for test user."""
-    access_token = auth_service.create_jwt_token(str(test_user.id))
+    access_token = auth_service.create_access_token(test_user)
     return {"Authorization": f"Bearer {access_token}"}
 
 
 @pytest.fixture
 def admin_headers(admin_user: User) -> dict:
     """Generate JWT auth headers for admin user."""
-    access_token = auth_service.create_jwt_token(str(admin_user.id))
+    access_token = auth_service.create_access_token(admin_user)
     return {"Authorization": f"Bearer {access_token}"}
 
 
@@ -165,7 +165,7 @@ async def create_authenticated_user(
 
 async def get_jwt_headers(user: User) -> dict:
     """Get JWT headers for a user."""
-    access_token = auth_service.create_jwt_token(str(user.id))
+    access_token = auth_service.create_access_token(user)
     return {"Authorization": f"Bearer {access_token}"}
 
 
