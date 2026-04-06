@@ -69,7 +69,9 @@ class Project(Base):
         String(100), nullable=True
     )
     status: Mapped[ProjectStatus] = mapped_column(
-        Enum(ProjectStatus), default=ProjectStatus.PENDING, nullable=False
+        Enum("pending", "running", "waiting_review", "completed", "failed", "cancelled", name="projectstatus", native_enum=False),
+        default=ProjectStatus.PENDING,
+        nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -106,7 +108,9 @@ class ProjectRun(Base):
         String(255), nullable=False, unique=True
     )
     status: Mapped[RunStatus] = mapped_column(
-        Enum(RunStatus), default=RunStatus.PENDING, nullable=False
+        Enum("pending", "running", "waiting_review", "completed", "failed", "cancelled", name="runstatus", native_enum=False),
+        default=RunStatus.PENDING,
+        nullable=False
     )
     current_step: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True
