@@ -213,8 +213,8 @@ export function ProjectDetail() {
         }
 
         // Handle interrupt — show review modal
-        if (msg.type === "interrupt" && msg.payload) {
-          setInterruptPayload(msg.payload);
+        if (msg.type === "interrupt" && msg.data) {
+          setInterruptPayload(msg.data);
           queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
           queryClient.invalidateQueries({ queryKey: ["project", projectId] });
         }
