@@ -491,6 +491,7 @@ class AgentOrchestrator:
         data:       Optional[dict] = None,
     ) -> None:
         try:
+            # Send real-time WebSocket notification
             await ws_manager.send_agent_event(
                 run_id=state["run_id"],
                 event_type=event_type,
@@ -499,8 +500,35 @@ class AgentOrchestrator:
                 message=message,
                 data=data,
             )
+            
+            # Also create permanent database record for live logs
+            from app.database import AsyncSessionLocal
+            from app.models.project import RunEvent
+            import uuid
+            
+            async with AsyncSessionLocal() as db:
+                # Find the run by thread_id to get the database run_id
+                from sqlalchemy import select
+                from app.models.project import ProjectRun
+                
+                stmt = select(ProjectRun).where(ProjectRun.thread_id == state["run_id"])
+                result = await db.execute(stmt)
+                run = result.scalar_one_or_none()
+                
+                if run:
+                    event = RunEvent(
+                        run_id=run.id,
+                        event_type=event_type,
+                        agent_name=agent_name,
+                        step=step,
+                        message=message,
+                        data=data or {},
+                    )
+                    db.add(event)
+                    await db.commit()
+                    
         except Exception as exc:
-            logger.warning(f"WebSocket notification failed (non-fatal): {exc}")
+            logger.warning(f"Notification failed (non-fatal): {exc}")
 
     async def _get_run_result(self, config: dict, graph=None) -> dict:
         try:
@@ -656,6 +684,7 @@ class AgentOrchestrator:
     async def _notify_from_event(self, event_type: str, agent_name: str, step: str, message: str, run_id: str) -> None:
         """Create WebSocket notification for streaming events."""
         try:
+            # Send real-time WebSocket notification
             await ws_manager.send_agent_event(
                 run_id=run_id,
                 event_type=event_type,
@@ -664,6 +693,32 @@ class AgentOrchestrator:
                 message=message,
                 data={},
             )
+            
+            # Also create permanent database record for live logs
+            from app.database import AsyncSessionLocal
+            from app.models.project import RunEvent
+            
+            async with AsyncSessionLocal() as db:
+                # Find the run by thread_id to get the database run_id
+                from sqlalchemy import select
+                from app.models.project import ProjectRun
+                
+                stmt = select(ProjectRun).where(ProjectRun.thread_id == run_id)
+                result = await db.execute(stmt)
+                run = result.scalar_one_or_none()
+                
+                if run:
+                    event = RunEvent(
+                        run_id=run.id,
+                        event_type=event_type,
+                        agent_name=agent_name,
+                        step=step,
+                        message=message,
+                        data={},
+                    )
+                    db.add(event)
+                    await db.commit()
+                    
         except Exception as exc:
             logger.warning(f"WebSocket notification failed (non-fatal): {exc}")
 
