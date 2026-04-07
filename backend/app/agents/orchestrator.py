@@ -102,19 +102,18 @@ class AgentOrchestrator:
 
     async def initialize(self) -> None:
         """
-        Set up the PostgreSQL checkpointer and compile the LangGraph workflow.
+        Set up the PostgreSQL connection string and compile the LangGraph workflow.
         Called once at application startup.
         """
-        clean_conn = (
+        self.clean_conn = (
             self.db_connection_string
             .replace("postgresql+psycopg://",  "postgresql://")
             .replace("postgresql+asyncpg://",  "postgresql://")
-            .replace("postgresql+psycopg2://", "postgresql://")
+            .replace("postgresql+psycopg2//", "postgresql://")
         )
         
-        # Use the context manager to get the checkpointer
-        checkpointer_cm = AsyncPostgresSaver.from_conn_string(clean_conn)
-        self._checkpointer = await checkpointer_cm.__aenter__()
+        # Don't create the checkpointer here - create fresh ones per run
+        self._checkpointer = None
         
         self._graph = self._build_graph()
         logger.info("AgentOrchestrator initialised")
@@ -175,7 +174,7 @@ class AgentOrchestrator:
         wf.add_edge("package_artifacts", END)
         wf.add_edge("handle_rejection",  END)
 
-        return wf.compile(checkpointer=self._checkpointer)
+        return wf  # Return uncompiled workflow - will compile with fresh checkpointer per run
 
     @staticmethod
     def _route_after_review(state: ProjectState) -> str:
@@ -503,9 +502,10 @@ class AgentOrchestrator:
         except Exception as exc:
             logger.warning(f"WebSocket notification failed (non-fatal): {exc}")
 
-    async def _get_run_result(self, config: dict) -> dict:
+    async def _get_run_result(self, config: dict, graph=None) -> dict:
         try:
-            s = await self._graph.aget_state(config)
+            graph = graph or self._graph
+            s = await graph.aget_state(config)
             if not s:
                 return {"status": "completed", "interrupt_payload": None}
             if s.next:
@@ -540,6 +540,13 @@ class AgentOrchestrator:
         if not self._graph:
             await self.initialize()
 
+        # Create a fresh checkpointer for this run to avoid connection issues
+        checkpointer_cm = AsyncPostgresSaver.from_conn_string(self.clean_conn)
+        checkpointer = await checkpointer_cm.__aenter__()
+        
+        # Temporarily update the graph with the fresh checkpointer
+        graph_with_checkpointer = self._graph.compile(checkpointer=checkpointer)
+
         config = {"configurable": {"thread_id": run_id}}
         initial: ProjectState = {
             "project_id":        project_id,
@@ -562,27 +569,103 @@ class AgentOrchestrator:
             "zip_url":           None,
         }
         try:
-            async for event in self._graph.astream(initial, config=config, stream_mode="updates"):
+            async for event in graph_with_checkpointer.astream(initial, config=config, stream_mode="updates"):
                 logger.debug(f"Node completed: {list(event.keys())}")
-            return await self._get_run_result(config)
+            return await self._get_run_result(config, graph_with_checkpointer)
         except Exception as exc:
             logger.error(f"Run {run_id} failed: {exc}", exc_info=True)
             raise
+        finally:
+            # Clean up the checkpointer connection
+            try:
+                await checkpointer_cm.__aexit__(None, None, None)
+            except:
+                pass  # Ignore cleanup errors
 
     async def resume_run(self, run_id: str, human_feedback: dict) -> dict:
         """Resume a paused run after human review. Returns status dict."""
         if not self._graph:
             await self.initialize()
+            
+        # Create a fresh checkpointer for this run to avoid connection issues
+        checkpointer_cm = AsyncPostgresSaver.from_conn_string(self.clean_conn)
+        checkpointer = await checkpointer_cm.__aenter__()
+        
+        # Compile the graph with the fresh checkpointer
+        graph_with_checkpointer = self._graph.compile(checkpointer=checkpointer)
+        
         config = {"configurable": {"thread_id": run_id}}
+        
         try:
-            async for event in self._graph.astream(
-                Command(resume=human_feedback), config=config, stream_mode="updates"
-            ):
-                logger.debug(f"Resume node: {list(event.keys())}")
-            return await self._get_run_result(config)
+            # First check if there's actually an active interrupt
+            state = await graph_with_checkpointer.aget_state(config)
+            logger.info(f"Current state for {run_id}: next={state.next}, tasks={len(state.tasks or [])}")
+            
+            if not state.next:
+                logger.warning(f"No pending state for run {run_id} - returning current state")
+                return await self._get_run_result(config, graph_with_checkpointer)
+            
+            # Check if there are interrupts waiting
+            has_interrupts = False
+            if state.tasks:
+                for task in state.tasks:
+                    if hasattr(task, 'interrupts') and task.interrupts:
+                        has_interrupts = True
+                        break
+            
+            if not has_interrupts:
+                logger.warning(f"No interrupts found for run {run_id} - continuing normal execution")
+                # Just continue the graph execution without Command
+                async for event in graph_with_checkpointer.astream(None, config=config, stream_mode="updates"):
+                    logger.debug(f"Continue node: {list(event.keys())}")
+                    await self._handle_streaming_event(event, run_id)
+            else:
+                logger.info(f"Resuming interrupted run {run_id} with feedback: {human_feedback}")
+                # Resume with the human feedback
+                async for event in graph_with_checkpointer.astream(
+                    Command(resume=human_feedback), config=config, stream_mode="updates"
+                ):
+                    logger.debug(f"Resume node: {list(event.keys())}")
+                    await self._handle_streaming_event(event, run_id)
+            
+            return await self._get_run_result(config, graph_with_checkpointer)
         except Exception as exc:
             logger.error(f"Resume {run_id} failed: {exc}", exc_info=True)
             raise
+        finally:
+            try:
+                await checkpointer_cm.__aexit__(None, None, None)
+            except:
+                pass  # Ignore cleanup errors
+
+    async def _handle_streaming_event(self, event: dict, run_id: str) -> None:
+        """Handle streaming events during resume to create notifications."""
+        # Extract the node/agent info from the event
+        for node_name, data in event.items():
+            if isinstance(data, dict) and "current_step" in data:
+                step = data["current_step"]
+                # Create notifications based on the step
+                if step == "requirements_analysis":
+                    await self._notify_from_event("agent_complete", "RequirementsAnalyst", step, 
+                                                 "Requirements analysis completed", run_id)
+                elif step == "architecture_design":
+                    await self._notify_from_event("agent_start", "Architect", step,
+                                                 "Starting architecture design", run_id)
+                # Add more step notifications as needed
+    
+    async def _notify_from_event(self, event_type: str, agent_name: str, step: str, message: str, run_id: str) -> None:
+        """Create WebSocket notification for streaming events."""
+        try:
+            await ws_manager.send_agent_event(
+                run_id=run_id,
+                event_type=event_type,
+                agent_name=agent_name,
+                step=step,
+                message=message,
+                data={},
+            )
+        except Exception as exc:
+            logger.warning(f"WebSocket notification failed (non-fatal): {exc}")
 
     async def get_run_state(self, run_id: str) -> Optional[dict]:
         """Return the full LangGraph state for a run (includes zip_url)."""

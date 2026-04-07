@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # Bedrock
     bedrock_model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
     bedrock_fast_model_id: str = "anthropic.claude-3-5-haiku-20241022-v1:0"
-    bedrock_max_tokens: int = 8192
+    bedrock_max_tokens: int = 64000
     bedrock_temperature: float = 0.1
 
     # S3

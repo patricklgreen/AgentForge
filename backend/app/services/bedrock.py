@@ -44,7 +44,7 @@ class BedrockService:
         self,
         model_id: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 8192,
+        max_tokens: int = 64000,  # Increased for Claude 4
         streaming: bool = True,
     ) -> ChatBedrock:
         """Return a cached ChatBedrock instance for the specified configuration."""
@@ -58,7 +58,6 @@ class BedrockService:
                 model_kwargs={
                     "max_tokens": max_tokens,
                     "temperature": temperature,
-                    "top_p": 0.9,
                 },
                 streaming=streaming,
             )
@@ -69,7 +68,7 @@ class BedrockService:
         return self.get_llm(
             model_id=settings.bedrock_fast_model_id,
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=64000,
         )
 
     async def invoke(
@@ -78,7 +77,7 @@ class BedrockService:
         user_message: str,
         model_id: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 8192,
+        max_tokens: int = 64000,  # Increased for Claude 4
         use_fast_model: bool = False,
     ) -> str:
         """Invoke the LLM and return the raw string response."""
@@ -175,7 +174,15 @@ class BedrockService:
         if clean.endswith("```"):
             clean = clean[:-3]
         clean = clean.strip()
-        return json.loads(clean)  # type: ignore[return-value]
+        
+        try:
+            return json.loads(clean)  # type: ignore[return-value]
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed. Error: {e}")
+            logger.error(f"Raw response length: {len(raw)}")
+            logger.error(f"Cleaned response length: {len(clean)}")
+            logger.error(f"Last 200 chars of cleaned response: {clean[-200:]}")
+            raise
 
 
 # Module-level singleton consumed by all agents

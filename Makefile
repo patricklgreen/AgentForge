@@ -154,13 +154,13 @@ migrate-rollback: ## Roll back one migration
 # ─── Docker ───────────────────────────────────────────────────────────────────
 
 build: ## Build Docker images locally
-	@docker compose build
+	@docker compose build --no-cache
 
 build-backend: ## Build backend Docker image only
-	@docker build -t agentforge-backend:local ./backend/
+	@docker build --no-cache -t agentforge-backend:local ./backend/
 
 build-frontend: ## Build frontend Docker image only
-	@docker build \
+	@docker build --no-cache \
 	  --build-arg VITE_API_URL=http://localhost:8000 \
 	  --build-arg VITE_WS_URL=ws://localhost:8000 \
 	  -t agentforge-frontend:local \

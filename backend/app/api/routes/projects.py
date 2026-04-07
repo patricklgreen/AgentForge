@@ -1,5 +1,6 @@
 import uuid
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -137,7 +138,7 @@ async def start_project_run(
 
     # Commit BEFORE spawning background task so the task can read committed data
     await db.commit()
-    await db.refresh(run)
+    await db.refresh(run, ["events"])  # Load events relationship to prevent MissingGreenlet
 
     background_tasks.add_task(
         _run_agents,
@@ -290,6 +291,11 @@ async def submit_human_feedback(
     run.status            = RunStatus.RUNNING
     run.interrupt_payload = None
 
+    # Also update project status to running when resuming
+    project = await db.get(Project, project_id)
+    if project:
+        project.status = ProjectStatus.RUNNING
+
     event = RunEvent(
         run_id=run_id,
         event_type="human_feedback",
@@ -381,11 +387,16 @@ def _apply_result_to_run(
 
     result shape: {
         "status":            "completed" | "interrupted" | "cancelled" | "failed",
+        "current_step":      str | None   (current step identifier)
         "interrupt_payload": dict | None,
         "error":             str | None   (only on failed/cancelled)
     }
     """
     run_status = result.get("status", "completed")
+    
+    # Always update current_step if present in result
+    if "current_step" in result:
+        run.current_step = result["current_step"]
 
     if run_status == "interrupted":
         run.status            = RunStatus.WAITING_REVIEW
@@ -427,6 +438,8 @@ async def _run_agents(
     Uses a fresh AsyncSession (separate from the request session) for all
     DB writes so there are no cross-task session conflicts.
     """
+    logger.info(f"🚀 Starting background task for run {thread_id}")
+    
     # Mark run as started
     async with AsyncSessionLocal() as db:
         run = await db.get(ProjectRun, run_db_id)
@@ -437,6 +450,7 @@ async def _run_agents(
         await db.commit()
 
     try:
+        logger.info(f"🔄 Calling orchestrator.start_run for thread {thread_id}")
         result = await orchestrator.start_run(
             project_id=str(project_id),
             run_id=thread_id,
@@ -444,6 +458,7 @@ async def _run_agents(
             target_language=target_language,
             target_framework=target_framework,
         )
+        logger.info(f"✅ Orchestrator.start_run completed for thread {thread_id}")
 
         async with AsyncSessionLocal() as db:
             run     = await db.get(ProjectRun, run_db_id)
@@ -478,22 +493,44 @@ async def _resume_agents(
     """
     Background task: resume a paused run after human feedback is submitted.
     """
+    logger.info(f"🔄 Starting resume_agents background task for thread {thread_id}")
     try:
-        result = await orchestrator.resume_run(
-            run_id=thread_id,
-            human_feedback=feedback,
+        logger.info(f"🔄 Calling orchestrator.resume_run for thread {thread_id}")
+        # Add timeout to prevent hanging indefinitely
+        result = await asyncio.wait_for(
+            orchestrator.resume_run(
+                run_id=thread_id,
+                human_feedback=feedback,
+            ),
+            timeout=900.0  # 15 minute timeout for Claude Opus
         )
+        logger.info(f"✅ Orchestrator.resume_run completed for thread {thread_id}")
 
         async with AsyncSessionLocal() as db:
             run     = await db.get(ProjectRun, run_db_id)
             project = await db.get(Project, project_id)
             if run:
+                logger.info(f"📝 Applying result to run {run_db_id}: status={result.get('status')}")
                 _apply_result_to_run(run, project, result)
                 await db.commit()
+                logger.info(f"✅ Applied result to run {run_db_id} successfully")
+
+    except asyncio.TimeoutError:
+        logger.error(f"❌ Resume of run {thread_id} timed out after 15 minutes")
+        async with AsyncSessionLocal() as db:
+            run     = await db.get(ProjectRun, run_db_id)
+            project = await db.get(Project, project_id)
+            if run:
+                run.status        = RunStatus.FAILED
+                run.error_message = "Resume operation timed out after 15 minutes"
+            if project:
+                project.status = ProjectStatus.FAILED
+            await db.commit()
+            logger.error(f"❌ Marked run {run_db_id} as failed due to timeout")
 
     except Exception as exc:
         logger.error(
-            f"Resume of run {thread_id} failed: {exc}",
+            f"Resume of run {thread_id} failed with exception: {exc}",
             exc_info=True,
         )
         async with AsyncSessionLocal() as db:
@@ -505,3 +542,4 @@ async def _resume_agents(
             if project:
                 project.status = ProjectStatus.FAILED
             await db.commit()
+            logger.error(f"❌ Marked run {run_db_id} as failed due to resume error")
