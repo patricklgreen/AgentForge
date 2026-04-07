@@ -412,6 +412,36 @@ export function ProjectDetail() {
     };
   }, [latestRun?.events]);
 
+  // Combined log entries: database events + live WebSocket events
+  const allLogEntries = useMemo(() => {
+    const databaseEntries: LogEntry[] = latestRun?.events?.map(event => ({
+      id: event.id,
+      timestamp: new Date(event.created_at),
+      type: event.event_type,
+      agent: event.agent_name,
+      step: event.step,
+      message: event.message,
+      data: event.data,
+    })) ?? [];
+
+    // Combine and sort by timestamp, remove duplicates
+    const combined = [...databaseEntries, ...liveLogEntries];
+    const unique = combined.reduce((acc, entry) => {
+      // Avoid duplicates by checking if we already have an entry with same timestamp and message
+      const exists = acc.find(e => 
+        Math.abs(e.timestamp.getTime() - entry.timestamp.getTime()) < 1000 &&
+        e.message === entry.message &&
+        e.agent === entry.agent
+      );
+      if (!exists) {
+        acc.push(entry);
+      }
+      return acc;
+    }, [] as LogEntry[]);
+
+    return unique.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }, [latestRun?.events, liveLogEntries]);
+
   // ─── Log Entry Renderer ──────────────────────────────────────────────────────
 
   const renderLogEntry = (entry: LogEntry) => {
@@ -826,7 +856,7 @@ export function ProjectDetail() {
             <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800">
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-600 font-mono">
-                  {liveLogEntries.length} entries
+                  {allLogEntries.length} entries
                 </span>
                 {(isRunning || isWaiting) && (
                   <span className="flex items-center gap-1.5 text-xs text-indigo-400">
@@ -839,12 +869,12 @@ export function ProjectDetail() {
                 onClick={() => setLiveLogEntries([])}
                 className="text-xs text-gray-700 hover:text-gray-400 transition-colors"
               >
-                Clear
+                Clear Live
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 font-mono text-sm bg-gray-950">
-              {liveLogEntries.length === 0 ? (
+              {allLogEntries.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <Terminal className="h-8 w-8 text-gray-800 mb-3" />
                   <p className="text-gray-700 text-sm">
@@ -855,7 +885,7 @@ export function ProjectDetail() {
                 </div>
               ) : (
                 <div className="space-y-0">
-                  {liveLogEntries.map(renderLogEntry)}
+                  {allLogEntries.map(renderLogEntry)}
                   <div ref={logEndRef} className="h-4" />
                 </div>
               )}
