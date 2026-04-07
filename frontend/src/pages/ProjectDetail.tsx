@@ -261,13 +261,13 @@ export function ProjectDetail() {
     if (shouldConnect && activeRunIdRef.current !== latestRun.id) {
       connectWebSocket(latestRun.thread_id, latestRun.id);
 
-      // Restore interrupt payload from DB on reconnect
-      if (
-        latestRun.status === "waiting_review" &&
-        latestRun.interrupt_payload &&
-        !interruptPayload
-      ) {
-        setInterruptPayload(latestRun.interrupt_payload as InterruptPayload);
+      // Restore interrupt payload from DB on reconnect or show new interrupt
+      if (latestRun.status === "waiting_review" && latestRun.interrupt_payload) {
+        const newPayload = latestRun.interrupt_payload as InterruptPayload;
+        // Show modal if we don't have a payload, or if the payload is different (new step)
+        if (!interruptPayload || interruptPayload.step !== newPayload.step) {
+          setInterruptPayload(newPayload);
+        }
       }
     }
 
