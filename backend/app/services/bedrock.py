@@ -52,6 +52,19 @@ class BedrockService:
         cache_key = f"{resolved_model_id}:{temperature}:{max_tokens}"
 
         if cache_key not in self._llm_cache:
+            # Configure boto3 client with retries and timeouts
+            from botocore.config import Config
+            
+            boto_config = Config(
+                region_name=settings.aws_region,
+                retries={
+                    'max_attempts': 3,
+                    'mode': 'adaptive'
+                },
+                read_timeout=300,  # 5 minutes for reading response
+                connect_timeout=60,  # 1 minute for initial connection
+            )
+            
             self._llm_cache[cache_key] = ChatBedrock(
                 model_id=resolved_model_id,
                 region_name=settings.aws_region,
@@ -60,6 +73,7 @@ class BedrockService:
                     "temperature": temperature,
                 },
                 streaming=streaming,
+                config=boto_config,  # Add the config for better timeout handling
             )
         return self._llm_cache[cache_key]
 
