@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-react';
 
 export interface Toast {
@@ -131,30 +131,30 @@ export function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
 export function useToast() {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const addToast = (toast: Omit<Toast, 'id'>) => {
+  const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { ...toast, id }]);
-  };
+  }, []);
 
-  const dismissToast = (id: string) => {
+  const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+  }, []);
 
-  const success = (title: string, message?: string, duration?: number) => {
+  const success = useCallback((title: string, message?: string, duration?: number) => {
     addToast({ type: 'success', title, message, duration });
-  };
+  }, [addToast]);
 
-  const error = (title: string, message?: string, duration?: number) => {
+  const error = useCallback((title: string, message?: string, duration?: number) => {
     addToast({ type: 'error', title, message, duration });
-  };
+  }, [addToast]);
 
-  const warning = (title: string, message?: string, duration?: number) => {
+  const warning = useCallback((title: string, message?: string, duration?: number) => {
     addToast({ type: 'warning', title, message, duration });
-  };
+  }, [addToast]);
 
-  const info = (title: string, message?: string, duration?: number) => {
+  const info = useCallback((title: string, message?: string, duration?: number) => {
     addToast({ type: 'info', title, message, duration });
-  };
+  }, [addToast]);
 
   return {
     toasts,

@@ -502,7 +502,7 @@ async def _resume_agents(
                 run_id=thread_id,
                 human_feedback=feedback,
             ),
-            timeout=7200.0  # 2 hour timeout for Claude Opus (code generation can be very intensive)
+            timeout=3600.0  # 1 hour timeout with Haiku (much faster than Opus)
         )
         logger.info(f"✅ Orchestrator.resume_run completed for thread {thread_id}")
 
@@ -516,17 +516,17 @@ async def _resume_agents(
                 logger.info(f"✅ Applied result to run {run_db_id} successfully")
 
     except asyncio.TimeoutError:
-        logger.error(f"❌ Resume of run {thread_id} timed out after 2 hours")
+        logger.error(f"❌ Resume of run {thread_id} timed out after 1 hour")
         async with AsyncSessionLocal() as db:
             run     = await db.get(ProjectRun, run_db_id)
             project = await db.get(Project, project_id)
             if run:
                 run.status        = RunStatus.FAILED
-                run.error_message = "Resume operation timed out after 2 hours"
+                run.error_message = "Resume operation timed out after 1 hour"
             if project:
                 project.status = ProjectStatus.FAILED
             await db.commit()
-            logger.error(f"❌ Marked run {run_db_id} as failed due to timeout (2 hours)")
+            logger.error(f"❌ Marked run {run_db_id} as failed due to timeout (1 hour)")
 
     except Exception as exc:
         logger.error(

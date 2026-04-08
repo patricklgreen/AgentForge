@@ -28,7 +28,7 @@ export function Login() {
       // Clear the state to prevent showing the toast again on refresh
       window.history.replaceState({}, document.title);
     }
-  }, [location.state, showSuccessToast]);
+  }, [location.state]); // Remove showSuccessToast from dependencies
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

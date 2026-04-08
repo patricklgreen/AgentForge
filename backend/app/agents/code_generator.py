@@ -24,6 +24,10 @@ Your code follows:
 
 You write code that is ready to ship to production without modification.
 Include all necessary imports and dependencies.
+
+IMPORTANT: Keep files concise and focused. If a file would be very large (>2000 lines), 
+break it into smaller, well-organized modules or use appropriate abstractions.
+
 Output ONLY the raw file content — no markdown fences, no explanation."""
 
 
@@ -61,6 +65,10 @@ class CodeGeneratorAgent(BaseAgent):
         priority_groups = self._group_by_priority(files_to_generate)
         code_files: list[dict] = []
         context: list[dict] = []  # Accumulates as groups complete
+        
+        # Add semaphore to limit concurrent Bedrock requests and avoid throttling
+        # Using 1 concurrent request for Opus to avoid overwhelming and ensure quality
+        semaphore = asyncio.Semaphore(1)
 
         for group in priority_groups:
             group_size = len(group)
@@ -79,12 +87,14 @@ class CodeGeneratorAgent(BaseAgent):
                         {"path": result["path"], "description": group[0].get("description", "")}
                     )
             else:
-                tasks = [
-                    self._generate_file(
-                        f, specification, architecture, context, feedback_context
-                    )
-                    for f in group
-                ]
+                # Use semaphore to limit concurrent requests and avoid guardrail throttling
+                async def generate_with_semaphore(file_info):
+                    async with semaphore:
+                        return await self._generate_file(
+                            file_info, specification, architecture, context, feedback_context
+                        )
+                
+                tasks = [generate_with_semaphore(f) for f in group]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 for file_info, result in zip(group, results):
                     if isinstance(result, Exception):
@@ -162,6 +172,7 @@ class CodeGeneratorAgent(BaseAgent):
             content = await self._invoke_llm(
                 system_prompt=_SYSTEM_PROMPT,
                 user_message=user_message,
+                use_fast_model=False,  # Use Opus for better code generation and higher token limit
             )
             return {
                 "path":        file_path,

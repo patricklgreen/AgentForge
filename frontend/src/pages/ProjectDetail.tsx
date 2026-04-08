@@ -123,6 +123,7 @@ export function ProjectDetail() {
   const [liveLogEntries,  setLiveLogEntries]  = useState<LogEntry[]>([]);
   const [interruptPayload, setInterruptPayload] = useState<InterruptPayload | null>(null);
   const [lastFeedbackTime, setLastFeedbackTime] = useState<number>(0); // Track when feedback was last submitted
+  const [lastFeedbackStep, setLastFeedbackStep] = useState<string | null>(null); // Track which step we last gave feedback for
   const [activeTab,        setActiveTab]        = useState<ActiveTab>("timeline");
   const [liveCodeFiles,    setLiveCodeFiles]    = useState<CodeFile[]>([]);
   const [isDownloading,    setIsDownloading]    = useState(false);
@@ -215,7 +216,7 @@ export function ProjectDetail() {
 
         // Handle interrupt — show review modal
         if (msg.type === "interrupt" && msg.data) {
-          setInterruptPayload(msg.data);
+          setInterruptPayload(msg.data as InterruptPayload);
           queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
           queryClient.invalidateQueries({ queryKey: ["project", projectId] });
         }
@@ -286,17 +287,19 @@ export function ProjectDetail() {
       const latestRun = runs?.[0];
       const timeSinceLastFeedback = Date.now() - lastFeedbackTime;
       
-      // Only show modal if:
-      // 1. Run is waiting for review
-      // 2. Has interrupt payload  
-      // 3. No current modal
-      // 4. At least 30 seconds have passed since last feedback (gives backend time to process)
-      if (latestRun?.status === "waiting_review" && 
-          latestRun.interrupt_payload && 
-          !interruptPayload &&
-          timeSinceLastFeedback > 30000) {
-        console.log("🔄 Fallback: Auto-showing missed review modal");
-        setInterruptPayload(latestRun.interrupt_payload as InterruptPayload);
+      if (latestRun?.status === "waiting_review" && latestRun.interrupt_payload) {
+        const payload = latestRun.interrupt_payload as InterruptPayload;
+        
+        // Only show modal if:
+        // 1. No current modal AND
+        // 2. It's a different step than we just gave feedback for AND
+        // 3. At least 3 minutes have passed since last feedback (gives backend plenty of time to process)
+        if (!interruptPayload && 
+            payload.step !== lastFeedbackStep &&
+            timeSinceLastFeedback > 180000) {
+          console.log("🔄 Fallback: Auto-showing missed review modal");
+          setInterruptPayload(payload);
+        }
       }
     };
 
@@ -305,7 +308,7 @@ export function ProjectDetail() {
     const interval = setInterval(checkForPendingReviews, 10000);
 
     return () => clearInterval(interval);
-  }, [runs, interruptPayload, lastFeedbackTime]);
+  }, [runs, interruptPayload, lastFeedbackTime, lastFeedbackStep]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -338,6 +341,10 @@ export function ProjectDetail() {
     onSuccess: () => {
       setInterruptPayload(null);
       setLastFeedbackTime(Date.now()); // Record feedback submission time
+      // Record the step we just gave feedback for
+      if (interruptPayload?.step) {
+        setLastFeedbackStep(interruptPayload.step);
+      }
       queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -1071,10 +1078,12 @@ export function ProjectDetail() {
             feedbackMutation.mutate(feedback)
           }
           onClose={() => {
-            // Only dismiss if the run is no longer in WAITING_REVIEW state
-            // so the modal auto-re-appears on next page load if still waiting
-            if (latestRun?.status !== "waiting_review") {
-              setInterruptPayload(null);
+            // Always allow manual dismissal of modal
+            setInterruptPayload(null);
+            setLastFeedbackTime(Date.now());
+            // Also record this as handled to prevent immediate re-showing
+            if (interruptPayload?.step) {
+              setLastFeedbackStep(interruptPayload.step);
             }
           }}
           isLoading={feedbackMutation.isPending}
