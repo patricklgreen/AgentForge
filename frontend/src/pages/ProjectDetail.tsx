@@ -122,6 +122,7 @@ export function ProjectDetail() {
   // State
   const [liveLogEntries,  setLiveLogEntries]  = useState<LogEntry[]>([]);
   const [interruptPayload, setInterruptPayload] = useState<InterruptPayload | null>(null);
+  const [lastFeedbackTime, setLastFeedbackTime] = useState<number>(0); // Track when feedback was last submitted
   const [activeTab,        setActiveTab]        = useState<ActiveTab>("timeline");
   const [liveCodeFiles,    setLiveCodeFiles]    = useState<CodeFile[]>([]);
   const [isDownloading,    setIsDownloading]    = useState(false);
@@ -278,6 +279,34 @@ export function ProjectDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestRun?.id, latestRun?.status]);
 
+  // ─── Fallback: Periodic check for missed review modals ────────────────────
+  
+  useEffect(() => {
+    const checkForPendingReviews = () => {
+      const latestRun = runs?.[0];
+      const timeSinceLastFeedback = Date.now() - lastFeedbackTime;
+      
+      // Only show modal if:
+      // 1. Run is waiting for review
+      // 2. Has interrupt payload  
+      // 3. No current modal
+      // 4. At least 30 seconds have passed since last feedback (gives backend time to process)
+      if (latestRun?.status === "waiting_review" && 
+          latestRun.interrupt_payload && 
+          !interruptPayload &&
+          timeSinceLastFeedback > 30000) {
+        console.log("🔄 Fallback: Auto-showing missed review modal");
+        setInterruptPayload(latestRun.interrupt_payload as InterruptPayload);
+      }
+    };
+
+    // Check immediately and then every 10 seconds
+    checkForPendingReviews();
+    const interval = setInterval(checkForPendingReviews, 10000);
+
+    return () => clearInterval(interval);
+  }, [runs, interruptPayload, lastFeedbackTime]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -308,6 +337,7 @@ export function ProjectDetail() {
     },
     onSuccess: () => {
       setInterruptPayload(null);
+      setLastFeedbackTime(Date.now()); // Record feedback submission time
       queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
