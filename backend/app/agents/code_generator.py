@@ -66,9 +66,10 @@ class CodeGeneratorAgent(BaseAgent):
         code_files: list[dict] = []
         context: list[dict] = []  # Accumulates as groups complete
         
-        # Add semaphore to limit concurrent Bedrock requests
-        # Increased to 5 concurrent requests for faster code generation (guardrails removed)
-        semaphore = asyncio.Semaphore(5)
+        # Experimental: High concurrency semaphore to test if blocking is the issue
+        # Trying 20 concurrent requests to see if parallelism helps work around hangs
+        # Previous attempts: semaphore=5 (failed), semaphore=1 (failed)
+        semaphore = asyncio.Semaphore(20)
 
         for group_idx, group in enumerate(priority_groups):
             group_size = len(group)

@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -43,22 +44,67 @@ class TestWriterAgent(BaseAgent):
 
         test_files: list[dict] = []
 
-        # Unit tests for each source file
-        for code_file in code_files:
-            if self._should_test(code_file["path"]):
-                test_file = await self._generate_unit_test(
-                    code_file=code_file,
-                    specification=specification,
-                    all_code_files=code_files,
-                    was_auto_fixed=code_file["path"] in auto_fixed_paths,
-                )
-                test_files.append(test_file)
+        # Add semaphore for concurrent test generation (matching CodeGenerator)
+        # Using same aggressive concurrency that worked for code generation
+        semaphore = asyncio.Semaphore(20)
 
-        # Integration tests for API layer
-        integration_tests = await self._generate_integration_tests(
-            specification=specification,
-            code_files=code_files,
+        # Process unit tests and integration tests concurrently
+        async def generate_unit_tests():
+            # Unit tests for each source file - processed concurrently
+            async def generate_test_with_semaphore(code_file):
+                async with semaphore:
+                    if self._should_test(code_file["path"]):
+                        return await self._generate_unit_test(
+                            code_file=code_file,
+                            specification=specification,
+                            all_code_files=code_files,
+                            was_auto_fixed=code_file["path"] in auto_fixed_paths,
+                        )
+                    return None
+            
+            # Process all test files concurrently
+            tasks = [generate_test_with_semaphore(code_file) for code_file in code_files]
+            self.logger.info(f"🔄 Generating unit tests for {len(tasks)} files concurrently")
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Collect successful test results
+            unit_tests = []
+            for code_file, result in zip(code_files, results):
+                if isinstance(result, Exception):
+                    self.logger.error(f"Failed to generate test for {code_file['path']}: {result}")
+                    continue
+                if result:
+                    unit_tests.append(result)
+            
+            return unit_tests
+
+        async def generate_integration_tests():
+            # Integration tests for API layer
+            self.logger.info("🔄 Generating integration tests")
+            return await self._generate_integration_tests(
+                specification=specification,
+                code_files=code_files,
+            )
+
+        # Run unit tests and integration tests in parallel
+        self.logger.info("🔄 Starting concurrent test generation (unit + integration)")
+        unit_tests, integration_tests = await asyncio.gather(
+            generate_unit_tests(),
+            generate_integration_tests(),
+            return_exceptions=True
         )
+        
+        # Handle any errors
+        if isinstance(unit_tests, Exception):
+            self.logger.error(f"Unit test generation failed: {unit_tests}")
+            unit_tests = []
+        if isinstance(integration_tests, Exception):
+            self.logger.error(f"Integration test generation failed: {integration_tests}")  
+            integration_tests = []
+        
+        # Combine all tests
+        test_files.extend(unit_tests)
         test_files.extend(integration_tests)
 
         # Test configuration files
