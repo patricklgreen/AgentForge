@@ -66,9 +66,9 @@ class CodeGeneratorAgent(BaseAgent):
         code_files: list[dict] = []
         context: list[dict] = []  # Accumulates as groups complete
         
-        # Add semaphore to limit concurrent Bedrock requests and avoid throttling
-        # Using 1 concurrent request for Opus to avoid overwhelming and ensure quality
-        semaphore = asyncio.Semaphore(1)
+        # Add semaphore to limit concurrent Bedrock requests
+        # Increased to 5 concurrent requests for faster code generation (guardrails removed)
+        semaphore = asyncio.Semaphore(5)
 
         for group in priority_groups:
             group_size = len(group)
