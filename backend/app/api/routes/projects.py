@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, text
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db, AsyncSessionLocal
@@ -239,9 +239,42 @@ async def get_run_state(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # Use thread_id (LangGraph identifier), NOT the DB UUID
-    state = await orchestrator.get_run_state(run.thread_id)
-    return RunStateResponse(state=state)
+    # Try to get ZIP URL from run events data first (more reliable than LangGraph state)
+    events_result = await db.execute(
+        select(RunEvent).where(
+            RunEvent.run_id == run_id,
+            RunEvent.data.isnot(None),
+            RunEvent.data.op("->>")(text("'zip_url'")).isnot(None)
+        ).order_by(RunEvent.created_at.desc()).limit(1)
+    )
+    latest_zip_event = events_result.scalar_one_or_none()
+    
+    if latest_zip_event and latest_zip_event.data:
+        zip_url = latest_zip_event.data.get("zip_url")
+        if zip_url:
+            return RunStateResponse(
+                state={
+                    "zip_url": zip_url,
+                    "run_status": run.status,
+                    "current_step": run.current_step,
+                }
+            )
+
+    # Fallback: try to get state from orchestrator (may not work for completed runs)
+    try:
+        # Use thread_id (LangGraph identifier), NOT the DB UUID
+        state = await orchestrator.get_run_state(run.thread_id)
+        return RunStateResponse(state=state)
+    except Exception as exc:
+        logger.warning(f"Could not retrieve LangGraph state for run {run_id}: {exc}")
+        # Return basic state info without ZIP URL
+        return RunStateResponse(
+            state={
+                "run_status": run.status,
+                "current_step": run.current_step,
+                "error": "State retrieval failed - run may be completed"
+            }
+        )
 
 
 @router.post("/{project_id}/runs/{run_id}/feedback", response_model=FeedbackResponse)

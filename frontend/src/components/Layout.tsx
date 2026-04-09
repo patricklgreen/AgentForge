@@ -110,7 +110,7 @@ export function Layout({ children }: LayoutProps) {
             Connected to AWS Bedrock
           </div>
           <a
-            href="https://github.com/yourusername/agentforge"
+            href="https://github.com/3Ci-Consulting/agentforge"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-300"

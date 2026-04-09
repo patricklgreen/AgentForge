@@ -212,7 +212,7 @@ describe("Layout", () => {
     );
 
     const githubLink = screen.getByText("View on GitHub");
-    expect(githubLink.closest("a")).toHaveAttribute("href", "https://github.com/yourusername/agentforge");
+    expect(githubLink.closest("a")).toHaveAttribute("href", "https://github.com/3Ci-Consulting/agentforge");
     expect(githubLink.closest("a")).toHaveAttribute("target", "_blank");
     expect(githubLink.closest("a")).toHaveAttribute("rel", "noopener noreferrer");
   });
