@@ -58,11 +58,14 @@ class BedrockService:
             boto_config = Config(
                 region_name=settings.aws_region,
                 retries={
-                    'max_attempts': 3,
+                    'max_attempts': 5,  # Increased from 3 to 5 for better resilience
                     'mode': 'adaptive'
                 },
                 read_timeout=300,  # 5 minutes for reading response
                 connect_timeout=60,  # 1 minute for initial connection
+                # Force signature v4 and ensure credentials are refreshed
+                signature_version='v4',
+                parameter_validation=False,  # Skip parameter validation for better performance
             )
             
             self._llm_cache[cache_key] = ChatBedrock(
@@ -76,6 +79,10 @@ class BedrockService:
                 config=boto_config,  # Add the config for better timeout handling
             )
         return self._llm_cache[cache_key]
+    
+    def clear_cache(self) -> None:
+        """Clear the LLM cache to force recreation of clients with fresh credentials."""
+        self._llm_cache.clear()
 
     def get_fast_llm(self) -> ChatBedrock:
         """Return the faster / cheaper model instance (Haiku) for simple tasks."""

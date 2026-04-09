@@ -70,7 +70,7 @@ class CodeGeneratorAgent(BaseAgent):
         # Increased to 5 concurrent requests for faster code generation (guardrails removed)
         semaphore = asyncio.Semaphore(5)
 
-        for group in priority_groups:
+        for group_idx, group in enumerate(priority_groups):
             group_size = len(group)
             self._log_step(
                 f"Generating priority group of {group_size} file(s): "
@@ -94,8 +94,12 @@ class CodeGeneratorAgent(BaseAgent):
                             file_info, specification, architecture, context, feedback_context
                         )
                 
+                # Process files in batches with progress monitoring
                 tasks = [generate_with_semaphore(f) for f in group]
+                self.logger.info(f"🔄 Processing group {group_idx + 1}/{len(priority_groups)} ({len(group)} files)")
+                
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+                successful = 0
                 for file_info, result in zip(group, results):
                     if isinstance(result, Exception):
                         logger.error(
@@ -110,6 +114,9 @@ class CodeGeneratorAgent(BaseAgent):
                                 "description": file_info.get("description", ""),
                             }
                         )
+                        successful += 1
+                
+                self.logger.info(f"✅ Group {group_idx + 1} complete: {successful}/{len(group)} files successful")
 
         self._log_step(
             f"Code generation complete — {len(code_files)} files generated"

@@ -33,21 +33,53 @@ class BaseAgent(ABC):
         use_fast_model: bool = False,
     ) -> str:
         """Invoke the LLM and return the raw string response."""
-        try:
-            llm = (
-                self.bedrock.get_fast_llm()
-                if use_fast_model
-                else self.bedrock.get_llm()
-            )
-            messages: list[BaseMessage] = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_message),
-            ]
-            response = await llm.ainvoke(messages)
-            return response.content  # type: ignore[return-value]
-        except Exception as exc:
-            self.logger.error(f"LLM invocation failed: {exc}")
-            raise
+        max_retries = 2  # Retry once for credential refresh
+        
+        for attempt in range(max_retries + 1):
+            try:
+                llm = (
+                    self.bedrock.get_fast_llm()
+                    if use_fast_model
+                    else self.bedrock.get_llm()
+                )
+                messages: list[BaseMessage] = [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_message),
+                ]
+                
+                # Add timeout to prevent individual LLM calls from hanging indefinitely
+                import asyncio
+                timeout_minutes = 10  # 10 minutes per LLM call should be more than enough
+                
+                try:
+                    async with asyncio.timeout(timeout_minutes * 60):
+                        response = await llm.ainvoke(messages)
+                except asyncio.TimeoutError:
+                    error_msg = f"LLM call timed out after {timeout_minutes} minutes"
+                    self.logger.error(error_msg)
+                    raise Exception(error_msg)
+                    
+                return response.content  # type: ignore[return-value]
+                
+            except Exception as exc:
+                error_str = str(exc)
+                
+                # Check for AWS signature expiration errors
+                if "InvalidSignatureException" in error_str or "Signature expired" in error_str:
+                    self.logger.warning(f"AWS signature expired on attempt {attempt + 1}: {exc}")
+                    
+                    if attempt < max_retries:
+                        # Clear the LLM cache to force credential refresh
+                        self.logger.info("Clearing Bedrock cache to refresh credentials...")
+                        self.bedrock.clear_cache()
+                        
+                        # Wait a bit before retry to allow credential refresh
+                        import asyncio
+                        await asyncio.sleep(2)
+                        continue
+                
+                self.logger.error(f"LLM invocation failed: {exc}")
+                raise
 
     async def _invoke_llm_json(
         self,

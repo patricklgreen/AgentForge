@@ -597,8 +597,29 @@ class AgentOrchestrator:
             "zip_url":           None,
         }
         try:
-            async for event in graph_with_checkpointer.astream(initial, config=config, stream_mode="updates"):
-                logger.debug(f"Node completed: {list(event.keys())}")
+            # Add timeout to prevent infinite hanging
+            import asyncio
+            timeout_hours = 2  # Maximum 2 hours for any workflow
+            timeout_seconds = timeout_hours * 3600
+            
+            try:
+                async with asyncio.timeout(timeout_seconds):
+                    async for event in graph_with_checkpointer.astream(initial, config=config, stream_mode="updates"):
+                        logger.debug(f"Node completed: {list(event.keys())}")
+                        # Log progress every few nodes to help debug stalls
+                        if any(key in ["generate_code", "validate_code", "write_tests", "review_code"] for key in event.keys()):
+                            logger.info(f"✅ Major milestone completed: {list(event.keys())}")
+            except asyncio.TimeoutError:
+                error_msg = f"Workflow timed out after {timeout_hours} hours"
+                logger.error(f"Run {run_id} timed out: {error_msg}")
+                # Try to get current state for debugging
+                try:
+                    state = await graph_with_checkpointer.aget_state(config)
+                    logger.error(f"Workflow was stuck at step: {state.values.get('current_step', 'unknown')}")
+                except Exception as state_error:
+                    logger.error(f"Could not retrieve state after timeout: {state_error}")
+                raise Exception(error_msg)
+            
             return await self._get_run_result(config, graph_with_checkpointer)
         except Exception as exc:
             logger.error(f"Run {run_id} failed: {exc}", exc_info=True)
