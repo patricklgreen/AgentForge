@@ -107,10 +107,19 @@ class S3Service:
         Returns:
             The S3 key of the uploaded ZIP.
         """
+        # Deduplicate files by path, keeping the last occurrence
+        # This prevents zipfile warnings about duplicate entries
+        file_dict = {}
+        for file_info in files:
+            path = file_info["path"]
+            file_dict[path] = file_info.get("content", "")
+        
+        logger.info(f"Creating ZIP with {len(file_dict)} unique files (deduped from {len(files)} total)")
+        
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file_info in files:
-                zf.writestr(file_info["path"], file_info.get("content", ""))
+            for path, content in file_dict.items():
+                zf.writestr(path, content)
 
         zip_buffer.seek(0)
         s3_key = f"projects/{project_id}/runs/{run_id}/project.zip"
