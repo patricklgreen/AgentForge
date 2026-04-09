@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -94,11 +94,17 @@ async def health() -> dict:
 # ─── WebSocket endpoint ───────────────────────────────────────────────────────
 
 @app.websocket("/ws/{run_id}")
-async def websocket_endpoint(websocket: WebSocket, run_id: str) -> None:
+async def websocket_endpoint(
+    websocket: WebSocket, 
+    run_id: str,
+    token: str = Query(None)
+) -> None:
     """
     WebSocket endpoint for real-time agent run progress.
 
     Clients connect with the LangGraph thread_id (= ProjectRun.thread_id).
+    Authentication is via ?token=<jwt_token> query parameter.
+    
     The server pushes structured events as agents execute:
       { type, agent, step, message, data }
 
@@ -108,7 +114,28 @@ async def websocket_endpoint(websocket: WebSocket, run_id: str) -> None:
       run_cancelled — pipeline rejected by reviewer
       error        — unhandled agent error
     """
+    # Authenticate the WebSocket connection
+    user = None
+    if token:
+        try:
+            from app.auth.dependencies import get_current_user
+            from app.services.auth import auth_service
+            
+            # Verify the JWT token
+            payload = auth_service.verify_jwt_token(token)
+            # Note: In a real implementation, you'd want to get the user from the database
+            # For now, we'll just check that the token is valid
+        except Exception as e:
+            logger.warning(f"WebSocket authentication failed for run_id={run_id}: {e}")
+            await websocket.close(code=4001, reason="Authentication failed")
+            return
+    else:
+        logger.warning(f"WebSocket connection attempted without token for run_id={run_id}")
+        await websocket.close(code=4001, reason="Authentication required") 
+        return
+        
     await ws_manager.connect(websocket, run_id)
+    logger.info(f"WebSocket client connected: run_id={run_id}, authenticated={bool(user)}")
     logger.info(f"WebSocket client connected: run_id={run_id}")
     try:
         while True:

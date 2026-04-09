@@ -152,8 +152,16 @@ export const authApi = {
     api.post("/auth/refresh", { refresh_token: refreshToken }).then((r) => r.data),
 
   /** Logout (invalidate tokens) */
-  logout: (): Promise<void> =>
-    api.post("/auth/logout").then(() => undefined),
+  logout: (): Promise<void> => {
+    const refreshToken = tokenService.getRefreshToken();
+    if (!refreshToken) {
+      // No refresh token to revoke, just clear local tokens
+      tokenService.clearTokens();
+      return Promise.resolve();
+    }
+    
+    return api.post("/auth/logout", { refresh_token: refreshToken }).then(() => undefined);
+  },
 };
 
 // ─── Projects API ─────────────────────────────────────────────────────────────
@@ -260,7 +268,11 @@ export class RunWebSocket {
   connect(): void {
     if (this.isManuallyDisconnected) return;
 
-    const url = `${WS_BASE}/ws/${this.runId}`;
+    // Add authentication token as query parameter for WebSocket
+    const token = tokenService.getToken();
+    const authParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    const url = `${WS_BASE}/ws/${this.runId}${authParam}`;
+    
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {

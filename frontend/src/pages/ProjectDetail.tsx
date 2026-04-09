@@ -25,7 +25,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { clsx } from "clsx";
 
-import { projectsApi, artifactsApi, RunWebSocket } from "../api/client";
+import { projectsApi, artifactsApi, RunWebSocket, tokenService } from "../api/client";
 import { AgentTimeline } from "../components/AgentTimeline";
 import { HumanReviewModal } from "../components/HumanReviewModal";
 import { CodeViewer } from "../components/CodeViewer";
@@ -107,6 +107,62 @@ interface LogEntry {
   data?:     Record<string, unknown>;
 }
 
+// ─── Token Refresh Hook ────────────────────────────────────────────────────────
+
+/**
+ * Hook to automatically refresh JWT tokens during long-running operations.
+ * Refreshes token every 25 minutes (before 30-minute expiry) while component is mounted.
+ */
+const useTokenRefresh = () => {
+  const refreshToken = useCallback(async () => {
+    try {
+      const refreshTokenValue = tokenService.getRefreshToken();
+      
+      if (!refreshTokenValue) {
+        console.log('🔑 No refresh token available - user needs to log in');
+        return;
+      }
+
+      const response = await fetch('http://localhost:8000/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshTokenValue }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        tokenService.setTokens(data.access_token, data.refresh_token);
+        console.log('🔄 Token refreshed successfully');
+      } else if (response.status === 401) {
+        console.warn('🔑 Refresh token expired or invalid - user needs to log in again');
+        // Don't clear tokens here - let the user stay on page but they'll need to re-login for API calls
+      } else {
+        console.warn('🔄 Token refresh failed:', response.status);
+      }
+    } catch (error) {
+      console.error('🔄 Token refresh error:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Only refresh immediately if we have a refresh token
+    const refreshTokenValue = tokenService.getRefreshToken();
+    
+    if (refreshTokenValue) {
+      // Don't refresh immediately - wait 23 minutes before first refresh
+      // This avoids refreshing right after login when tokens are fresh
+      console.log('🔄 Token auto-refresh scheduled for 23 minutes');
+      
+      // Schedule refresh every 23 minutes (7 minute safety buffer before 30-minute expiry)
+      const interval = setInterval(refreshToken, 23 * 60 * 1000);
+      
+      return () => clearInterval(interval);
+    } else {
+      console.log('🔑 No refresh token found - skipping auto-refresh');
+    }
+  }, [refreshToken]);
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ProjectDetail() {
@@ -131,6 +187,11 @@ export function ProjectDetail() {
 
   // Keep ref in sync (used in callbacks to avoid stale closure)
   activeTabRef.current = activeTab;
+
+  // ─── Token Refresh ──────────────────────────────────────────────────────────────
+  
+  // Automatically refresh tokens during long-running pipelines
+  useTokenRefresh();
 
   // ─── Data Fetching ──────────────────────────────────────────────────────────
 
