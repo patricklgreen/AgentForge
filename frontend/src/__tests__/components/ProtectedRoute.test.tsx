@@ -63,7 +63,9 @@ describe("ProtectedRoute", () => {
       </ProtectedRoute>
     );
 
-    expect(screen.getByRole("status", { hidden: true })).toBeInTheDocument();
+    // Look for the loading spinner element directly
+    const spinner = document.querySelector('.animate-spin');
+    expect(spinner).toBeInTheDocument();
     expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
   });
 
@@ -83,7 +85,13 @@ describe("ProtectedRoute", () => {
 
     const navigate = screen.getByTestId("navigate");
     expect(navigate).toHaveAttribute("data-to", "/login");
-    expect(navigate).toHaveAttribute("data-state", JSON.stringify({ from: { pathname: "/dashboard" } }));
+    
+    // Parse the JSON to check the from property
+    const stateAttr = navigate.getAttribute("data-state");
+    const state = stateAttr ? JSON.parse(stateAttr) : null;
+    expect(state).toHaveProperty("from");
+    expect(state.from).toHaveProperty("pathname", "/dashboard");
+    
     expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
   });
 
@@ -234,7 +242,7 @@ describe("PublicOnlyRoute", () => {
       </PublicOnlyRoute>
     );
 
-    expect(screen.getByRole("status", { hidden: true })).toBeInTheDocument();
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument();
     expect(screen.queryByText("Public Content")).not.toBeInTheDocument();
   });
 

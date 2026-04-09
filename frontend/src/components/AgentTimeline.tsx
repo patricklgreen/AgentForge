@@ -43,6 +43,12 @@ const STEPS: PipelineStep[] = [
     icon:  <ShieldCheck className="h-4 w-4" />,
   },
   {
+    id:    "package_validation",
+    label: "Package Validation", 
+    agent: "PackageValidator",
+    icon:  <AlertCircle className="h-4 w-4" />,
+  },
+  {
     id:    "test_writing",
     label: "Test Writing",
     agent: "TestWriter",

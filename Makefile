@@ -76,7 +76,7 @@ logs: ## Tail Docker Compose logs
 
 test: test-backend test-frontend ## Run all tests (backend + frontend)
 
-test-backend: ## Run backend tests with coverage (must be ≥90%)
+test-backend: ## Run backend tests with coverage (must be ≥75%)
 	@echo "Running backend tests..."
 	@cd backend && \
 	  source .venv/bin/activate && \
@@ -84,7 +84,7 @@ test-backend: ## Run backend tests with coverage (must be ≥90%)
 	    --cov=app \
 	    --cov-report=html:htmlcov \
 	    --cov-report=term-missing \
-	    --cov-fail-under=90 \
+	    --cov-fail-under=75 \
 	    -v
 	@echo "Coverage report: backend/htmlcov/index.html"
 

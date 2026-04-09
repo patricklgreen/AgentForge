@@ -14,6 +14,7 @@ from app.agents.test_writer import TestWriterAgent
 from app.agents.code_reviewer import CodeReviewerAgent
 from app.agents.devops_agent import DevOpsAgent
 from app.agents.documentation_agent import DocumentationAgent
+from app.agents.package_validation_agent import PackageValidationAgent
 from app.services.s3 import s3_service
 from app.services.websocket_manager import ws_manager
 from app.config import get_settings
@@ -93,6 +94,7 @@ class AgentOrchestrator:
         self.architect_agent     = ArchitectAgent()
         self.code_generator      = CodeGeneratorAgent()
         self.validation_agent    = ValidationAgent()
+        self.package_validator   = PackageValidationAgent()
         self.test_writer         = TestWriterAgent()
         self.code_reviewer       = CodeReviewerAgent()
         self.devops_agent        = DevOpsAgent()
@@ -129,6 +131,7 @@ class AgentOrchestrator:
         wf.add_node("human_review_architecture", self._human_review_architecture_node)
         wf.add_node("generate_code",             self._generate_code_node)
         wf.add_node("validate_code",             self._validate_code_node)
+        wf.add_node("validate_packages",         self._validate_packages_node)
         wf.add_node("write_tests",               self._write_tests_node)
         wf.add_node("review_code",               self._review_code_node)
         wf.add_node("human_review_code",         self._human_review_code_node)
@@ -154,7 +157,8 @@ class AgentOrchestrator:
         )
 
         wf.add_edge("generate_code", "validate_code")
-        wf.add_edge("validate_code", "write_tests")
+        wf.add_edge("validate_code", "validate_packages")  
+        wf.add_edge("validate_packages", "write_tests")
         wf.add_edge("write_tests",   "review_code")
         wf.add_edge("review_code",   "human_review_code")
 
@@ -288,6 +292,26 @@ class AgentOrchestrator:
         await self._notify(state, "agent_complete", "Validator", "validation", msg,
                            {"auto_fixed": fixed, "still_erroring": broken})
         return {**result, "current_step": "validation"}
+
+    async def _validate_packages_node(self, state: ProjectState) -> ProjectState:
+        await self._notify(state, "agent_start", "PackageValidator",
+                           "package_validation", "Validating packages for current versions and compatibility...")
+        result = await self.package_validator.execute(state)
+        
+        critical_issues = result.get("critical_issues", [])
+        validation_passed = result.get("validation_passed", False)
+        
+        status_msg = "Package validation complete"
+        if validation_passed:
+            status_msg += " — All packages current and compatible ✅"
+        else:
+            status_msg += f" — {len(critical_issues)} critical issues found ⚠️"
+            
+        await self._notify(state, "agent_complete", "PackageValidator", 
+                           "package_validation", status_msg,
+                           {"critical_issues_count": len(critical_issues), 
+                            "validation_passed": validation_passed})
+        return {**result, "current_step": "package_validation"}
 
     async def _write_tests_node(self, state: ProjectState) -> ProjectState:
         await self._notify(state, "agent_start", "TestWriter",

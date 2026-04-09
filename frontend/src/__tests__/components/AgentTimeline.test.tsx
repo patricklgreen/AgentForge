@@ -18,13 +18,14 @@ const makeEvent = (
 });
 
 describe("AgentTimeline", () => {
-  it("renders all nine pipeline steps including validation", () => {
+  it("renders all ten pipeline steps including validation", () => {
     render(<AgentTimeline events={[]} currentStep={undefined} runStatus={undefined} />);
 
     expect(screen.getByText("Requirements Analysis")).toBeInTheDocument();
     expect(screen.getByText("Architecture Design")).toBeInTheDocument();
     expect(screen.getByText("Code Generation")).toBeInTheDocument();
-    expect(screen.getByText("Code Validation")).toBeInTheDocument();  // ← new step
+    expect(screen.getByText("Code Validation")).toBeInTheDocument();
+    expect(screen.getByText("Package Validation")).toBeInTheDocument(); // ← new step
     expect(screen.getByText("Test Writing")).toBeInTheDocument();
     expect(screen.getByText("Code Review")).toBeInTheDocument();
     expect(screen.getByText("DevOps Setup")).toBeInTheDocument();
@@ -36,6 +37,7 @@ describe("AgentTimeline", () => {
     render(<AgentTimeline events={[]} currentStep={undefined} runStatus={undefined} />);
     expect(screen.getByText("RequirementsAnalyst")).toBeInTheDocument();
     expect(screen.getByText("Validator")).toBeInTheDocument();
+    expect(screen.getByText("PackageValidator")).toBeInTheDocument(); // ← new agent
     expect(screen.getByText("TestWriter")).toBeInTheDocument();
   });
 
