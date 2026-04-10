@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertCircle, X, Mail } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -9,9 +9,17 @@ interface VerificationBannerProps {
   };
 }
 
+const DISMISSED_KEY = 'verificationBannerDismissed';
+
 export function VerificationBanner({ user }: VerificationBannerProps) {
   const [isDismissed, setIsDismissed] = useState(false);
   const navigate = useNavigate();
+
+  // Load dismissed state from localStorage on mount
+  useEffect(() => {
+    const dismissed = localStorage.getItem(DISMISSED_KEY) === 'true';
+    setIsDismissed(dismissed);
+  }, []);
 
   // Don't show banner if user is verified or has dismissed it
   if (user.is_verified || isDismissed) {
@@ -20,6 +28,11 @@ export function VerificationBanner({ user }: VerificationBannerProps) {
 
   const handleVerifyClick = () => {
     navigate('/profile?tab=verification');
+  };
+
+  const handleDismiss = () => {
+    setIsDismissed(true);
+    localStorage.setItem(DISMISSED_KEY, 'true');
   };
 
   return (
@@ -46,8 +59,9 @@ export function VerificationBanner({ user }: VerificationBannerProps) {
         <div className="ml-auto pl-3">
           <div className="-mx-1.5 -my-1.5">
             <button
-              onClick={() => setIsDismissed(true)}
+              onClick={handleDismiss}
               className="inline-flex bg-yellow-50 rounded-md p-1.5 text-yellow-500 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-yellow-50 focus:ring-yellow-600"
+              aria-label="Dismiss banner"
             >
               <span className="sr-only">Dismiss</span>
               <X className="h-5 w-5" />

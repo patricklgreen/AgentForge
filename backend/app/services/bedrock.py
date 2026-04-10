@@ -186,15 +186,22 @@ class BedrockService:
     @staticmethod
     def _parse_json_response(raw: str) -> dict[str, Any]:
         """Strip optional markdown fences and parse JSON."""
+        import re
+        
         clean = raw.strip()
-        # Remove ```json ... ``` or ``` ... ``` wrappers
-        if clean.startswith("```json"):
-            clean = clean[7:]
-        elif clean.startswith("```"):
-            clean = clean[3:]
-        if clean.endswith("```"):
-            clean = clean[:-3]
-        clean = clean.strip()
+        
+        # Try to extract JSON from markdown code block
+        json_block_pattern = r'```(?:json)?\s*(.*?)\s*```'
+        match = re.search(json_block_pattern, clean, re.DOTALL)
+        if match:
+            clean = match.group(1).strip()
+        else:
+            # Try to find JSON-like content with curly braces
+            json_pattern = r'\{.*\}'
+            match = re.search(json_pattern, clean, re.DOTALL)
+            if match:
+                clean = match.group(0).strip()
+            # If no special patterns found, use the original clean content
         
         try:
             return json.loads(clean)  # type: ignore[return-value]

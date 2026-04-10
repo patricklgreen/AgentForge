@@ -67,23 +67,29 @@ class TestWebSocketEndpoint:
     @pytest.mark.asyncio
     async def test_websocket_connection(self):
         """Test WebSocket connection handling."""
-        with patch('app.main.ws_manager') as mock_manager:
+        with patch('app.main.ws_manager') as mock_manager, \
+             patch('app.services.auth.auth_service') as mock_auth_service:
+            
             mock_manager.connect = AsyncMock()
             mock_manager.disconnect = MagicMock()
+            
+            # Mock successful authentication
+            mock_auth_service.verify_jwt_token.return_value = {"user_id": "test_user"}
             
             from app.main import websocket_endpoint
             from fastapi import WebSocket
             
             mock_websocket = MagicMock(spec=WebSocket)
+            mock_websocket.close = AsyncMock()
             mock_websocket.receive_text = AsyncMock()
             mock_websocket.receive_text.side_effect = [
                 "test message",
                 Exception("WebSocketDisconnect")  # Simulate disconnect
             ]
             
-            # Test connection
+            # Test connection with valid token
             try:
-                await websocket_endpoint(mock_websocket, "run123")
+                await websocket_endpoint(mock_websocket, "run123", "valid_token")
             except Exception:
                 pass  # Expected when simulating disconnect
             
@@ -93,18 +99,24 @@ class TestWebSocketEndpoint:
     @pytest.mark.asyncio
     async def test_websocket_error_handling(self):
         """Test WebSocket error handling."""
-        with patch('app.main.ws_manager') as mock_manager:
+        with patch('app.main.ws_manager') as mock_manager, \
+             patch('app.services.auth.auth_service') as mock_auth_service:
+            
             mock_manager.connect = AsyncMock()
             mock_manager.disconnect = MagicMock()
+            
+            # Mock successful authentication
+            mock_auth_service.verify_jwt_token.return_value = {"user_id": "test_user"}
             
             from app.main import websocket_endpoint
             from fastapi import WebSocket
             
             mock_websocket = MagicMock(spec=WebSocket)
+            mock_websocket.close = AsyncMock()
             mock_websocket.receive_text = AsyncMock(side_effect=Exception("Connection error"))
             
             try:
-                await websocket_endpoint(mock_websocket, "run456")
+                await websocket_endpoint(mock_websocket, "run456", "valid_token")
             except Exception:
                 pass
             
@@ -117,15 +129,38 @@ class TestLifespanManager:
     
     @pytest.mark.asyncio
     async def test_lifespan_generator(self):
-        """Test lifespan is a proper async generator."""
+        """Test lifespan context manager works correctly."""
         from app.main import lifespan
+        from unittest.mock import patch, AsyncMock
+        
         mock_app = MagicMock(spec=FastAPI)
         mock_app.state = MagicMock()
         
-        # Should be an async generator
-        lifespan_gen = lifespan(mock_app)
-        assert hasattr(lifespan_gen, '__anext__')
-        assert hasattr(lifespan_gen, 'aclose')
+        # Mock database operations to avoid DB dependency
+        with patch('app.main.engine') as mock_engine, \
+             patch('app.main.Base') as mock_base, \
+             patch('app.api.routes.projects.get_orchestrator') as mock_get_orchestrator:
+            
+            # Mock engine context manager
+            mock_conn = AsyncMock()
+            mock_engine.begin.return_value.__aenter__.return_value = mock_conn
+            mock_engine.begin.return_value.__aexit__.return_value = None
+            # Mock engine dispose method
+            mock_engine.dispose = AsyncMock()
+            
+            # Mock orchestrator
+            mock_orchestrator = AsyncMock()
+            mock_get_orchestrator.return_value = mock_orchestrator
+            
+            # Test the lifespan context manager
+            async with lifespan(mock_app) as result:
+                # During the startup phase
+                assert mock_app.state.orchestrator == mock_orchestrator
+                assert result is None  # AsyncGenerator[None, None]
+            
+            # Verify startup operations were called
+            mock_get_orchestrator.assert_called_once()
+            mock_engine.dispose.assert_called_once()
 
 
 class TestApplicationIntegration:

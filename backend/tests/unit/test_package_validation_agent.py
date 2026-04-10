@@ -303,7 +303,7 @@ class TestPackageValidationAgent:
             await agent.execute(state)
             
             # Should only call _validate_file for config files
-            call_args = [call.args[0] for call in mock_validate.call_args_list]
+            call_args = [call.kwargs["file_path"] for call in mock_validate.call_args_list]
             
             # Should include config files
             assert "package.json" in call_args

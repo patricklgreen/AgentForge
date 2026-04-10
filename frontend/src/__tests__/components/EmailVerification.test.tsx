@@ -6,20 +6,20 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import { EmailVerification } from '../../components/EmailVerification'
 import { EmailVerificationPage } from '../../pages/EmailVerificationPage'
-import * as api from '../../api/client'
+import { emailVerificationApi } from '../../api/client'
 
 const mockUser = {
   email: 'test@example.com',
   is_verified: false,
 }
 
-// Mock the API
+// Mock the API - provide direct emailVerificationApi mock 
 vi.mock('../../api/client', () => ({
   emailVerificationApi: {
     sendVerificationEmail: vi.fn(),
     confirmEmailVerification: vi.fn(),
     getVerificationStatus: vi.fn(),
-  },
+  }
 }))
 
 // Mock useAppStore
@@ -30,6 +30,19 @@ vi.mock('../../store', () => ({
     refreshUser: mockRefreshUser,
   }),
 }))
+
+// Mock useSearchParams
+const mockSetSearchParams = vi.fn()
+const mockSearchParams = new URLSearchParams()
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return {
+    ...actual,
+    useSearchParams: () => [mockSearchParams, mockSetSearchParams],
+    useNavigate: () => vi.fn(),
+  }
+})
 
 const renderWithRouter = (component: React.ReactElement) => {
   return render(
@@ -45,7 +58,7 @@ describe('EmailVerification Component', () => {
   })
 
   it('should render verification status correctly', async () => {
-    vi.mocked(api.emailVerificationApi.getVerificationStatus).mockResolvedValue({
+    vi.mocked(emailVerificationApi.getVerificationStatus).mockResolvedValue({
       is_verified: false,
       email: 'test@example.com',
       has_pending_verification: false,
@@ -59,7 +72,7 @@ describe('EmailVerification Component', () => {
   })
 
   it('should show verified status for verified email', async () => {
-    vi.mocked(api.emailVerificationApi.getVerificationStatus).mockResolvedValue({
+    vi.mocked(emailVerificationApi.getVerificationStatus).mockResolvedValue({
       is_verified: true,
       email: 'test@example.com',
       has_pending_verification: false,
@@ -73,13 +86,13 @@ describe('EmailVerification Component', () => {
   })
 
   it('should allow sending verification email', async () => {
-    vi.mocked(api.emailVerificationApi.getVerificationStatus).mockResolvedValue({
+    vi.mocked(emailVerificationApi.getVerificationStatus).mockResolvedValue({
       is_verified: false,
       email: 'test@example.com',
       has_pending_verification: false,
     })
 
-    vi.mocked(api.emailVerificationApi.sendVerificationEmail).mockResolvedValue({
+    vi.mocked(emailVerificationApi.sendVerificationEmail).mockResolvedValue({
       success: true,
       message: 'Verification email sent',
     })
@@ -95,18 +108,18 @@ describe('EmailVerification Component', () => {
     fireEvent.click(sendButton)
 
     await waitFor(() => {
-      expect(api.emailVerificationApi.sendVerificationEmail).toHaveBeenCalledWith('test@example.com')
+      expect(emailVerificationApi.sendVerificationEmail).toHaveBeenCalledWith('test@example.com')
     })
   })
 
   it('should show cooldown after sending email', async () => {
-    vi.mocked(api.emailVerificationApi.getVerificationStatus).mockResolvedValue({
+    vi.mocked(emailVerificationApi.getVerificationStatus).mockResolvedValue({
       is_verified: false,
       email: 'test@example.com',
       has_pending_verification: false,
     })
 
-    vi.mocked(api.emailVerificationApi.sendVerificationEmail).mockResolvedValue({
+    vi.mocked(emailVerificationApi.sendVerificationEmail).mockResolvedValue({
       success: true,
       message: 'Verification email sent',
     })
@@ -124,13 +137,13 @@ describe('EmailVerification Component', () => {
   })
 
   it('should handle send email error', async () => {
-    vi.mocked(api.emailVerificationApi.getVerificationStatus).mockResolvedValue({
+    vi.mocked(emailVerificationApi.getVerificationStatus).mockResolvedValue({
       is_verified: false,
       email: 'test@example.com',
       has_pending_verification: false,
     })
 
-    vi.mocked(api.emailVerificationApi.sendVerificationEmail).mockRejectedValue(
+    vi.mocked(emailVerificationApi.sendVerificationEmail).mockRejectedValue(
       new Error('Failed to send email')
     )
 
@@ -169,7 +182,7 @@ describe('EmailVerificationPage', () => {
       writable: true,
     })
 
-    vi.mocked(api.emailVerificationApi.confirmEmailVerification).mockResolvedValue({
+    vi.mocked(emailVerificationApi.confirmEmailVerification).mockResolvedValue({
       message: 'Email verified successfully',
       is_verified: true,
     })
@@ -177,7 +190,7 @@ describe('EmailVerificationPage', () => {
     renderWithRouter(<EmailVerificationPage />)
 
     await waitFor(() => {
-      expect(api.emailVerificationApi.confirmEmailVerification).toHaveBeenCalledWith('test-token')
+      expect(emailVerificationApi.confirmEmailVerification).toHaveBeenCalledWith('test-token')
     })
   })
 
@@ -187,7 +200,7 @@ describe('EmailVerificationPage', () => {
       writable: true,
     })
 
-    vi.mocked(api.emailVerificationApi.confirmEmailVerification).mockResolvedValue({
+    vi.mocked(emailVerificationApi.confirmEmailVerification).mockResolvedValue({
       message: 'Email verified successfully',
       is_verified: true,
     })
@@ -207,7 +220,7 @@ describe('EmailVerificationPage', () => {
       writable: true,
     })
 
-    vi.mocked(api.emailVerificationApi.confirmEmailVerification).mockRejectedValue(
+    vi.mocked(emailVerificationApi.confirmEmailVerification).mockRejectedValue(
       new Error('Invalid token')
     )
 
@@ -235,7 +248,7 @@ describe('EmailVerificationPage', () => {
       writable: true,
     })
 
-    vi.mocked(api.emailVerificationApi.confirmEmailVerification).mockResolvedValue({
+    vi.mocked(emailVerificationApi.confirmEmailVerification).mockResolvedValue({
       message: 'Email verified successfully',
       is_verified: true,
     })

@@ -70,14 +70,17 @@ class TestCodeGeneratorAgent:
         mock_response.content = "# Generated Python code\nprint('Hello, World!')"
         
         with patch.object(agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = mock_response
+            mock_llm.return_value = "# Generated Python code\nprint('Hello, World!')"
             
             # Add some files to generate
             state = {
                 **base_state,
-                "files_to_generate": [
-                    {"path": "src/main.py", "description": "Main application file"}
-                ]
+                "specification": {"target_language": "Python"},
+                "architecture": {
+                    "files_to_generate": [
+                        {"path": "src/main.py", "description": "Main application file", "priority": 1}
+                    ]
+                }
             }
             
             result = await agent.execute(state)
@@ -99,7 +102,7 @@ class TestTestWriterAgent:
         mock_response.content = "# Generated test code\ndef test_example(): pass"
         
         with patch.object(agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = mock_response
+            mock_llm.return_value = "# Generated test code\ndef test_example(): pass"
             
             # Add some code files to test
             state = {
@@ -126,20 +129,21 @@ class TestValidationAgent:
         mock_response = Mock()
         mock_response.content = '{"validation_passed": true, "issues": []}'
         
-        with patch.object(agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = mock_response
+        with patch.object(agent, '_invoke_llm_json', new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = {"validation_passed": True, "issues": []}
             
             state = {
                 **base_state,
+                "specification": {"target_language": "Python"},
                 "code_files": [
-                    {"path": "src/main.py", "content": "print('Hello')"}
+                    {"path": "src/main.py", "content": "def hello():\n    return 'Hello World'\n"}
                 ]
             }
             
             result = await agent.execute(state)
 
-        assert "validation_passed" in result
-        assert result["current_step"] == "code_validation"
+        assert "validation_results" in result
+        assert result["current_step"] == "validation"
 
 
 # ─── DevOpsAgent ─────────────────────────────────────────────────────────────

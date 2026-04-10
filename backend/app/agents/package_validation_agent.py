@@ -157,13 +157,13 @@ Provide:
 3. **Migration Notes**: Any breaking changes to watch for
 
 Output as JSON with structure:
-{
+{{
   "status": "issues_found" | "valid",
-  "issues": [{"severity": "critical|warning|info", "package": "", "issue": "", "fix": ""}],
+  "issues": [{{"severity": "critical|warning|info", "package": "", "issue": "", "fix": ""}}],
   "critical_issues": ["list of critical problems"],
   "updated_package_json": "complete corrected JSON string",
   "migration_notes": ["any breaking changes to watch for"]
-}
+}}
 """
 
         try:

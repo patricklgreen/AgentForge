@@ -9,43 +9,47 @@ vi.mock("../store", () => ({
 }));
 
 // Mock the pages
-vi.mock("../../pages/Dashboard", () => ({
+vi.mock("../pages/Dashboard", () => ({
   Dashboard: () => <div>Dashboard Page</div>,
 }));
 
-vi.mock("../../pages/NewProject", () => ({
+vi.mock("../pages/NewProject", () => ({
   NewProject: () => <div>New Project Page</div>,
 }));
 
-vi.mock("../../pages/ProjectDetail", () => ({
+vi.mock("../pages/ProjectDetail", () => ({
   ProjectDetail: () => <div>Project Detail Page</div>,
 }));
 
-vi.mock("../../pages/Login", () => ({
+vi.mock("../pages/Login", () => ({
   Login: () => <div>Login Page</div>,
 }));
 
-vi.mock("../../pages/Register", () => ({
+vi.mock("../pages/Register", () => ({
   Register: () => <div>Register Page</div>,
 }));
 
-vi.mock("../../pages/Profile", () => ({
+vi.mock("../pages/Profile", () => ({
   Profile: () => <div>Profile Page</div>,
 }));
 
-vi.mock("../../pages/NotFound", () => ({
+vi.mock("../pages/EmailVerificationPage", () => ({
+  EmailVerificationPage: () => <div>Email Verification Page</div>,
+}));
+
+vi.mock("../pages/NotFound", () => ({
   NotFound: () => <div>Not Found Page</div>,
 }));
 
 // Mock the Layout component
-vi.mock("../../components/Layout", () => ({
+vi.mock("../components/Layout", () => ({
   Layout: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="layout">{children}</div>
   ),
 }));
 
 // Mock the ProtectedRoute components
-vi.mock("../../components/ProtectedRoute", () => ({
+vi.mock("../components/ProtectedRoute", () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="protected-route">{children}</div>
   ),
