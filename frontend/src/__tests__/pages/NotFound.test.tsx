@@ -28,7 +28,7 @@ describe("NotFound Page", () => {
   it("should have link back to dashboard", () => {
     renderWithRouter(<NotFound />);
     
-    const homeLink = screen.getByText("Go back home");
+    const homeLink = screen.getByText("Go to Dashboard");
     expect(homeLink.closest("a")).toHaveAttribute("href", "/");
   });
 

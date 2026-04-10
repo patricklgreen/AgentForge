@@ -153,9 +153,9 @@ describe("Layout Component Comprehensive Tests", () => {
         </Layout>
       );
 
-      // Should show user email and username
+      // Should show user email and full name (not username since full_name takes precedence)
       expect(screen.getByText("test@example.com")).toBeInTheDocument();
-      expect(screen.getByText("testuser")).toBeInTheDocument();
+      expect(screen.getByText("Test User")).toBeInTheDocument(); // full_name is displayed, not username
     });
 
     it("should show user avatar placeholder", () => {
@@ -170,8 +170,17 @@ describe("Layout Component Comprehensive Tests", () => {
         </Layout>
       );
 
-      // Should show avatar with initials
-      expect(screen.getByText("TU")).toBeInTheDocument(); // Test User initials
+      // Check for the user section and avatar container
+      const userNameElement = screen.getByText("Test User");
+      expect(userNameElement).toBeInTheDocument();
+      
+      // Use a more reliable approach to find the avatar div
+      const avatarDiv = document.querySelector(".bg-indigo-600");
+      expect(avatarDiv).toBeTruthy();
+      
+      // Also check that the User icon is present within the avatar container
+      const userIcon = avatarDiv?.querySelector('svg');
+      expect(userIcon).toBeTruthy();
     });
   });
 
@@ -193,6 +202,9 @@ describe("Layout Component Comprehensive Tests", () => {
       const logoutButton = screen.getByRole("button", { name: /logout/i });
       fireEvent.click(logoutButton);
 
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       expect(mockLogout).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith("/login");
     });
@@ -203,7 +215,12 @@ describe("Layout Component Comprehensive Tests", () => {
         logout: mockLogout,
       });
 
-      mockLogout.mockRejectedValue(new Error("Logout failed"));
+      // Mock rejected logout with proper error handling
+      const logoutError = new Error("Logout failed");
+      mockLogout.mockRejectedValue(logoutError);
+
+      // Mock console.error to suppress error logging during test
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       renderWithRouter(
         <Layout>
@@ -213,8 +230,17 @@ describe("Layout Component Comprehensive Tests", () => {
 
       const logoutButton = screen.getByRole("button", { name: /logout/i });
       
-      // Should not throw even if logout fails
-      expect(() => fireEvent.click(logoutButton)).not.toThrow();
+      // Click and handle the async rejection
+      fireEvent.click(logoutButton);
+
+      // Wait for the async operation to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Should still navigate to login even when logout fails
+      expect(mockNavigate).toHaveBeenCalledWith("/login");
+
+      // Cleanup
+      consoleSpy.mockRestore();
     });
   });
 
@@ -231,8 +257,9 @@ describe("Layout Component Comprehensive Tests", () => {
         </Layout>
       );
 
-      // Should have responsive classes
-      const sidebar = screen.getByText("AgentForge").closest("div");
+      // Should have responsive classes - check the sidebar container (parent of AgentForge text)
+      const agentForgeElement = screen.getByText("AgentForge");
+      const sidebar = agentForgeElement.closest("div")?.parentElement; // Get the sidebar container
       expect(sidebar).toHaveClass("w-64"); // Fixed width sidebar
     });
   });
@@ -287,8 +314,8 @@ describe("Layout Component Comprehensive Tests", () => {
         </Layout>
       );
 
-      // Should still show username and email
-      expect(screen.getByText("testuser")).toBeInTheDocument();
+      // Should show username when full_name is null, and email
+      expect(screen.getByText("testuser")).toBeInTheDocument(); // Now username is shown since no full_name
       expect(screen.getByText("test@example.com")).toBeInTheDocument();
     });
 

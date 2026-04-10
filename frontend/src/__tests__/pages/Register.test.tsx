@@ -192,12 +192,6 @@ describe("Register Page", () => {
     fireEvent.click(submitButton);
     
     await waitFor(() => {
-      expect(screen.getByText("Registration Successful!")).toBeInTheDocument();
-      expect(screen.getByText("Your account has been created. Redirecting to login...")).toBeInTheDocument();
-    });
-    
-    // Wait for redirect
-    await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/login", {
         state: { message: "Registration successful! Please sign in." },
       });

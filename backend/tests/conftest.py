@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.main import app
 from app.database import Base, get_db
@@ -23,21 +24,36 @@ from tests.auth_fixtures import *  # noqa
 # UUID columns, JSON columns, and PostgreSQL-specific enum types.
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://agentforge:password@localhost:5432/agentforge_test",
+    "postgresql+asyncpg://agentforge:password@localhost:5433/agentforge_test",
 )
 
 
 # ─── Event loop ────────────────────────────────────────────────────────────────
-# pytest-asyncio >= 0.22 uses the "auto" asyncio_mode in pyproject.toml.
-# A session-scoped event loop is no longer needed; each test gets its own.
+# CRITICAL FIX: Session-scoped event loop prevents "Task got Future attached to a different loop" errors
+# Using modern pytest-asyncio approach to avoid deprecation warnings
+@pytest.fixture(scope="session")
+def event_loop_policy():
+    """Session-scoped event loop policy."""
+    return asyncio.DefaultEventLoopPolicy()
 
 
 # ─── Database fixtures ─────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
-    """Create all tables once per test session."""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    """
+    Create all tables once per test session.
+    
+    CRITICAL FIX: Uses NullPool to prevent connection reuse across event loops,
+    avoiding "operation in progress" errors.
+    """
+    engine = create_async_engine(
+        TEST_DATABASE_URL, 
+        echo=False,
+        poolclass=NullPool,  # Key: No connection pooling for tests
+        pool_pre_ping=True,
+        pool_recycle=-1,
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -48,8 +64,15 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Provide a rolled-back session for each test (no data leaks)."""
-    session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    """
+    Provide a clean session for each test.
+    
+    Simple approach: New session per test with rollback cleanup.
+    """
+    session_factory = async_sessionmaker(
+        test_engine, 
+        expire_on_commit=False,
+    )
     async with session_factory() as session:
         yield session
         await session.rollback()

@@ -27,8 +27,14 @@ export function Layout({ children }: LayoutProps) {
   const { user, logout } = useAppStore();
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      // Still navigate to login even if logout fails
+      console.error('Logout failed:', error);
+      navigate('/login');
+    }
   };
 
   // Don't show sidebar layout for auth pages

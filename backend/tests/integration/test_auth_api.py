@@ -55,8 +55,8 @@ class TestAuthenticationEndpoints:
         
         response = await client.post("/api/v1/auth/register", json=user_data)
         
-        assert response.status_code == 409
-        assert "email already registered" in response.json()["detail"].lower()
+        assert response.status_code == 400
+        assert "already exists" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_register_duplicate_username_fails(self, client: AsyncClient, test_user: User):

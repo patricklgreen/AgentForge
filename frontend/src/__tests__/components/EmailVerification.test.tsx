@@ -67,7 +67,7 @@ describe('EmailVerification Component', () => {
     renderWithRouter(<EmailVerification user={mockUser} />)
 
     await waitFor(() => {
-      expect(screen.getByText(/Email verification/)).toBeInTheDocument()
+      expect(screen.getByText(/Email Not Verified/)).toBeInTheDocument()
     })
   })
 
@@ -81,7 +81,7 @@ describe('EmailVerification Component', () => {
     renderWithRouter(<EmailVerification user={mockUser} />)
 
     await waitFor(() => {
-      expect(screen.getByText(/verified/i)).toBeInTheDocument()
+      expect(screen.getByText(/Email Verified/)).toBeInTheDocument()
     })
   })
 
@@ -132,7 +132,7 @@ describe('EmailVerification Component', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText(/resend in/i)).toBeInTheDocument()
+      expect(screen.getByText(/Wait \d+s/)).toBeInTheDocument()
     })
   })
 
@@ -155,7 +155,7 @@ describe('EmailVerification Component', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText(/error/i)).toBeInTheDocument()
+      expect(screen.getByText(/Failed to send verification email/)).toBeInTheDocument()
     })
   })
 })
@@ -163,24 +163,21 @@ describe('EmailVerification Component', () => {
 describe('EmailVerificationPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear search params between tests
+    mockSearchParams.forEach((_, key) => mockSearchParams.delete(key))
   })
 
   it('should show loading initially', () => {
-    // Mock URLSearchParams to return a token
-    Object.defineProperty(window, 'location', {
-      value: { search: '?token=test-token' },
-      writable: true,
-    })
+    // Set up search params to contain the token
+    mockSearchParams.set('token', 'test-token')
 
     renderWithRouter(<EmailVerificationPage />)
-    expect(screen.getByText(/verifying/i)).toBeInTheDocument()
+    expect(screen.getByText(/Verifying your email address/)).toBeInTheDocument()
   })
 
   it('should verify token on mount', async () => {
-    Object.defineProperty(window, 'location', {
-      value: { search: '?token=test-token' },
-      writable: true,
-    })
+    // Set up search params to contain the token
+    mockSearchParams.set('token', 'test-token')
 
     vi.mocked(emailVerificationApi.confirmEmailVerification).mockResolvedValue({
       message: 'Email verified successfully',
@@ -195,10 +192,8 @@ describe('EmailVerificationPage', () => {
   })
 
   it('should show success message after verification', async () => {
-    Object.defineProperty(window, 'location', {
-      value: { search: '?token=test-token' },
-      writable: true,
-    })
+    // Set up search params to contain the token
+    mockSearchParams.set('token', 'test-token')
 
     vi.mocked(emailVerificationApi.confirmEmailVerification).mockResolvedValue({
       message: 'Email verified successfully',
@@ -208,17 +203,15 @@ describe('EmailVerificationPage', () => {
     renderWithRouter(<EmailVerificationPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/success/i)).toBeInTheDocument()
+      expect(screen.getByText(/Verification Successful!/)).toBeInTheDocument()
     })
 
     expect(mockRefreshUser).toHaveBeenCalled()
   })
 
   it('should show error message for invalid token', async () => {
-    Object.defineProperty(window, 'location', {
-      value: { search: '?token=invalid-token' },
-      writable: true,
-    })
+    // Set up search params to contain an invalid token
+    mockSearchParams.set('token', 'invalid-token')
 
     vi.mocked(emailVerificationApi.confirmEmailVerification).mockRejectedValue(
       new Error('Invalid token')
@@ -227,15 +220,13 @@ describe('EmailVerificationPage', () => {
     renderWithRouter(<EmailVerificationPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/error/i)).toBeInTheDocument()
+      expect(screen.getByText(/Verification Failed/)).toBeInTheDocument()
     })
   })
 
   it('should show error when no token provided', () => {
-    Object.defineProperty(window, 'location', {
-      value: { search: '' },
-      writable: true,
-    })
+    // Clear any existing token from search params
+    mockSearchParams.delete('token')
 
     renderWithRouter(<EmailVerificationPage />)
 
@@ -243,10 +234,8 @@ describe('EmailVerificationPage', () => {
   })
 
   it('should have link back to profile', async () => {
-    Object.defineProperty(window, 'location', {
-      value: { search: '?token=test-token' },
-      writable: true,
-    })
+    // Set up search params to contain the token
+    mockSearchParams.set('token', 'test-token')
 
     vi.mocked(emailVerificationApi.confirmEmailVerification).mockResolvedValue({
       message: 'Email verified successfully',
@@ -255,10 +244,16 @@ describe('EmailVerificationPage', () => {
 
     renderWithRouter(<EmailVerificationPage />)
 
+    // First wait for the API call
     await waitFor(() => {
-      const profileLink = screen.getByText(/go to profile/i)
-      expect(profileLink).toBeInTheDocument()
-      expect(profileLink.closest('a')).toHaveAttribute('href', '/profile?tab=verification')
+      expect(emailVerificationApi.confirmEmailVerification).toHaveBeenCalledWith('test-token')
     })
+
+    // Then wait for the success state and "Go to Profile" button
+    await waitFor(() => {
+      const profileButton = screen.getByText(/Go to Profile/)
+      expect(profileButton).toBeInTheDocument()
+      expect(profileButton.closest('button')).toBeInTheDocument()
+    }, { timeout: 2000 })
   })
 })
