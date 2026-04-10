@@ -90,7 +90,13 @@ export function NewProject() {
   });
 
   const mutation = useMutation({
-    mutationFn: (data: ProjectCreate) => projectsApi.create(data),
+    mutationFn: async (data: ProjectCreate) => {
+      // First create the project
+      const project = await projectsApi.create(data);
+      // Then immediately start the build
+      await projectsApi.startRun(project.id);
+      return project;
+    },
     onSuccess: (project) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate(`/projects/${project.id}`);
@@ -309,7 +315,7 @@ export function NewProject() {
             {mutation.isPending ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin" />
-                Creating Project...
+                Creating Project & Starting Build...
               </>
             ) : (
               <>
