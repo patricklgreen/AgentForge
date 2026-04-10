@@ -142,6 +142,8 @@ Validate this package.json for production readiness in April 2026:
 3. **Security**: Check for packages with known vulnerabilities  
 4. **Compatibility**: Verify package combinations work together
 5. **Missing Essentials**: Any critical packages missing for the tech stack?
+6. **Libraries should not conflict with each other
+7. **Libraries should not contain any security vulnerabilities
 
 **Specific concerns to check:**
 - ESLint 8.x is deprecated (use 9.x)

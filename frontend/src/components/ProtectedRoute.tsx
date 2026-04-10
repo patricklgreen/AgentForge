@@ -12,11 +12,11 @@ export function ProtectedRoute({ children, requireRole }: ProtectedRouteProps) {
   const location = useLocation();
 
   useEffect(() => {
-    // Check authentication status on mount
-    if (!user && !isLoading) {
+    // Only check authentication if not already authenticated and not currently loading
+    if (!isAuthenticated && !user && !isLoading) {
       checkAuth();
     }
-  }, [user, isLoading, checkAuth]);
+  }, [isAuthenticated, user, isLoading]); // Remove checkAuth from dependencies to prevent infinite loops
 
   // Show loading spinner while checking auth
   if (isLoading) {
@@ -28,12 +28,12 @@ export function ProtectedRoute({ children, requireRole }: ProtectedRouteProps) {
   }
 
   // Redirect to login if not authenticated
-  if (!isAuthenticated || !user) {
+  if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   // Check role-based access if required
-  if (requireRole && user.role !== requireRole) {
+  if (requireRole && user && user.role !== requireRole) {
     // For role hierarchy: admin > user > viewer
     const roleHierarchy = { admin: 3, user: 2, viewer: 1 };
     const userLevel = roleHierarchy[user.role];

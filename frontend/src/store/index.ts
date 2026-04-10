@@ -95,7 +95,7 @@ export const useAppStore = create<AppState>((set) => ({
   checkAuth: async () => {
     const token = tokenService.getToken();
     if (!token) {
-      set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false, isLoading: false });
       return;
     }
 
@@ -109,6 +109,7 @@ export const useAppStore = create<AppState>((set) => ({
       });
     } catch (error) {
       // Token is invalid, clear it
+      console.error('Auth check failed:', error);
       tokenService.clearTokens();
       set({ 
         user: null, 

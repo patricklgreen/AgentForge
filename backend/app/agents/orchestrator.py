@@ -559,7 +559,7 @@ class AgentOrchestrator:
             graph = graph or self._graph
             s = await graph.aget_state(config)
             if not s:
-                return {"status": "completed", "interrupt_payload": None}
+                return {"status": "completed", "interrupt_payload": None, "current_step": None}
             if s.next:
                 payload = None
                 for task in (s.tasks or []):
@@ -567,13 +567,16 @@ class AgentOrchestrator:
                     if its:
                         payload = its[0].value
                         break
-                return {"status": "interrupted", "interrupt_payload": payload}
+                # Include current_step even when interrupted
+                vals = s.values or {}
+                step = vals.get("current_step")
+                return {"status": "interrupted", "interrupt_payload": payload, "current_step": step}
             vals  = s.values or {}
-            step  = vals.get("current_step", "")
+            step  = vals.get("current_step")
             error = vals.get("error")
             if step == "cancelled":
-                return {"status": "cancelled", "interrupt_payload": None, "error": error}
-            return {"status": "completed", "interrupt_payload": None}
+                return {"status": "cancelled", "interrupt_payload": None, "current_step": step, "error": error}
+            return {"status": "completed", "interrupt_payload": None, "current_step": step}
         except Exception as exc:
             logger.error(f"Failed to inspect run result: {exc}", exc_info=True)
             return {"status": "failed", "interrupt_payload": None, "error": str(exc)}
