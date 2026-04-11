@@ -11,13 +11,13 @@ from typing import Optional
 
 # USD per 1,000 input/output tokens (update as AWS pricing changes)
 BEDROCK_PRICING: dict[str, dict[str, float]] = {
-    "anthropic.claude-3-5-sonnet-20241022-v2:0": {
-        "input":  0.003,    # $3.00 per 1M tokens
-        "output": 0.015,    # $15.00 per 1M tokens
+    "us.anthropic.claude-opus-4-6-v1": {
+        "input":  0.005,    # $53.00 per 1M tokens
+        "output": 0.025,    # $25.00 per 1M tokens
     },
-    "anthropic.claude-3-5-haiku-20241022-v1:0": {
-        "input":  0.0008,   # $0.80 per 1M tokens
-        "output": 0.004,    # $4.00 per 1M tokens
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0": {
+        "input":  0.001,   # $1.00 per 1M tokens
+        "output": 0.005,    # $5.00 per 1M tokens
     },
     # Default fallback
     "default": {

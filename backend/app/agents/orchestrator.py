@@ -579,6 +579,13 @@ class AgentOrchestrator:
                         data=data or {},
                     )
                     db.add(event)
+                    
+                    # Real-time current_step updates: sync DB with actual workflow progress
+                    if event_type == "agent_complete" and step:
+                        # Update current_step immediately when agent completes to fix UI sync issues
+                        run.current_step = step
+                        logger.info(f"📝 Updated current_step to '{step}' after {agent_name} completion")
+                    
                     await db.commit()
                     
         except Exception as exc:
@@ -795,6 +802,13 @@ class AgentOrchestrator:
                         data={},
                     )
                     db.add(event)
+                    
+                    # Real-time current_step updates: sync DB with actual workflow progress  
+                    if event_type == "agent_complete" and step:
+                        # Update current_step immediately when agent completes to fix UI sync issues
+                        run.current_step = step
+                        logger.info(f"📝 Updated current_step to '{step}' after {agent_name} completion")
+                    
                     await db.commit()
                     
         except Exception as exc:

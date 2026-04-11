@@ -551,15 +551,46 @@ esac
             return False
 
     async def _run_command(
-        self, 
-        cmd: List[str], 
-        cwd: Optional[Path] = None, 
+        self,
+        cmd: List[str],
+        cwd: Optional[Path] = None,
         timeout: Optional[int] = None
     ) -> subprocess.CompletedProcess:
         """Run a command with timeout protection."""
         timeout = timeout or self.timeout_seconds
-        
+
         try:
+            # Ensure Docker is accessible - try direct path first, then PATH
+            if cmd[0] == "docker":
+                # Try common Docker paths
+                docker_paths = [
+                    "/usr/bin/docker",
+                    "/usr/local/bin/docker", 
+                    "docker"  # fallback to PATH
+                ]
+                
+                docker_cmd = None
+                for docker_path in docker_paths:
+                    try:
+                        # Test if docker exists and is executable
+                        test_process = await asyncio.create_subprocess_exec(
+                            docker_path, "--version",
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        await test_process.wait()
+                        if test_process.returncode == 0:
+                            docker_cmd = docker_path
+                            break
+                    except FileNotFoundError:
+                        continue
+                
+                if not docker_cmd:
+                    raise FileNotFoundError("Docker executable not found in any common paths")
+                
+                # Replace 'docker' with the found path
+                cmd = [docker_cmd] + cmd[1:]
+
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=cwd,

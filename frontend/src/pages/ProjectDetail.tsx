@@ -237,12 +237,17 @@ export function ProjectDetail() {
     enabled: !!projectId,
   });
 
-  const { data: runs = [], isLoading: runsLoading } = useQuery({
+  const { data: runs = [], isLoading: runsLoading, refetch: refetchRuns } = useQuery({
     queryKey:        ["runs", projectId],
     queryFn:         () => projectsApi.listRuns(projectId!),
     refetchInterval: (query) => {
       const latest = query.state.data?.[0];
-      return latest?.status === "running" || latest?.status === "waiting_review"
+      // Faster refresh for recently failed runs to get final event data
+      const isRecentlyFailed = latest?.status === "failed" && 
+        latest?.completed_at && 
+        (Date.now() - new Date(latest.completed_at).getTime()) < 60000; // within 1 minute
+      
+      return latest?.status === "running" || latest?.status === "waiting_review" || isRecentlyFailed
         ? 5000
         : 15_000;
     },
