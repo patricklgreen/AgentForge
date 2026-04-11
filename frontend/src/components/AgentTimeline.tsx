@@ -1,13 +1,12 @@
 import React from "react";
 import { clsx } from "clsx";
 import {
+  AlertCircle,
   CheckCircle,
   Circle,
   Loader2,
   XCircle,
   Clock,
-  AlertCircle,
-  ShieldCheck,
 } from "lucide-react";
 import type { RunEvent } from "../types";
 
@@ -40,13 +39,11 @@ const STEPS: PipelineStep[] = [
     id:    "validation",
     label: "Code Validation",
     agent: "Validator",
-    icon:  <ShieldCheck className="h-4 w-4" />,
   },
   {
     id:    "package_validation",
     label: "Package Validation", 
     agent: "PackageValidator",
-    icon:  <AlertCircle className="h-4 w-4" />,
   },
   {
     id:    "test_writing",
@@ -57,7 +54,6 @@ const STEPS: PipelineStep[] = [
     id:    "build_validation",
     label: "Build Validation",
     agent: "BuildValidator",
-    icon:  <CheckCircle className="h-4 w-4" />,
   },
   {
     id:    "code_review",
