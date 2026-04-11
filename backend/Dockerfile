@@ -23,14 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     ca-certificates \
-    gnupg \
-    lsb-release \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://download.docker.com/linux/static/stable/aarch64/docker-24.0.7.tgz | tar -C /usr/local/bin --strip-components=1 -xzf - docker/docker \
+    || curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-24.0.7.tgz | tar -C /usr/local/bin --strip-components=1 -xzf - docker/docker
 
 # Non-root user
 RUN useradd --create-home --uid 1000 appuser

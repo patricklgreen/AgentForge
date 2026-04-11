@@ -9,7 +9,7 @@ from app.models.project import AgentStep, ProjectStatus, RunStatus
 
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(..., min_length=10)
+    description: str = Field(..., min_length=20)
     requirements: str = Field(
         ..., min_length=50, description="Detailed business requirements"
     )

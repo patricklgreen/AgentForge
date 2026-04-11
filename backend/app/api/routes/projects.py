@@ -10,7 +10,7 @@ from sqlalchemy import select, desc, text
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db, AsyncSessionLocal
-from app.models.project import Project, ProjectRun, RunEvent, RunStatus, ProjectStatus
+from app.models.project import Project, ProjectRun, RunEvent, RunStatus, ProjectStatus, Artifact
 from app.models.auth import UserRole
 from app.schemas.project import (
     ProjectCreate,
@@ -360,10 +360,10 @@ async def cancel_run(
     orchestrator: AgentOrchestrator = Depends(get_orchestrator),
 ) -> CancelResponse:
     """
-    Cancel a run that is currently paused at a human-review checkpoint.
+    Cancel a running or paused run.
 
-    Injects a reject action into the LangGraph interrupt, which routes
-    to handle_rejection and terminates the pipeline gracefully.
+    For paused runs (WAITING_REVIEW): Injects a reject action into the LangGraph interrupt.
+    For running builds: Stops the execution and marks as cancelled.
     """
     # First check if user has access to the project
     project = await db.get(Project, project_id)
@@ -383,11 +383,13 @@ async def cancel_run(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    if run.status != RunStatus.WAITING_REVIEW:
+    
+    # Allow cancelling RUNNING or WAITING_REVIEW runs
+    if run.status not in [RunStatus.RUNNING, RunStatus.WAITING_REVIEW]:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Only WAITING_REVIEW runs can be cancelled. "
+                f"Only RUNNING or WAITING_REVIEW runs can be cancelled. "
                 f"Current status: {run.status}"
             ),
         )
@@ -576,3 +578,74 @@ async def _resume_agents(
                 project.status = ProjectStatus.FAILED
             await db.commit()
             logger.error(f"❌ Marked run {run_db_id} as failed due to resume error")
+
+
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(
+    project_id: uuid.UUID,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Delete a project and all associated data including:
+    - All project runs and their events
+    - All artifacts and S3 files
+    - The project itself
+    """
+    # First check if user has access to the project
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check ownership (admins can access all projects)
+    if project.user_id != user.id and user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Access denied to this project")
+    
+    try:
+        # Get all runs for S3 cleanup
+        runs_result = await db.execute(
+            select(ProjectRun).where(ProjectRun.project_id == project_id)
+        )
+        runs = runs_result.scalars().all()
+        
+        # Get all artifacts for S3 cleanup
+        artifacts_result = await db.execute(
+            select(Artifact).where(Artifact.project_id == project_id)
+        )
+        artifacts = artifacts_result.scalars().all()
+        
+        # Clean up S3 artifacts
+        from app.services.s3 import s3_service
+        
+        # Delete all S3 objects for this project using the prefix
+        project_prefix = f"projects/{project_id}/"
+        deleted_count = await s3_service.delete_objects_by_prefix(project_prefix)
+        if deleted_count > 0:
+            logger.info(f"Deleted {deleted_count} S3 objects for project {project_id}")
+        
+        # Delete individual artifacts from S3 (if they have specific S3 keys not following the pattern)
+        for artifact in artifacts:
+            if hasattr(artifact, 's3_key') and artifact.s3_key:
+                # Only delete if it's not already covered by the prefix deletion
+                if not artifact.s3_key.startswith(project_prefix):
+                    try:
+                        await s3_service.delete_object(artifact.s3_key)
+                        logger.info(f"Deleted artifact S3 object: {artifact.s3_key}")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete S3 artifact {artifact.s3_key}: {e}")
+        
+        # Note: Project ZIP files should be covered by the prefix deletion above
+        
+        # Delete from database - CASCADE will handle related records
+        await db.delete(project)
+        await db.commit()
+        
+        logger.info(f"Successfully deleted project {project_id} and all associated data")
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to delete project {project_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete project: {str(e)}"
+        )

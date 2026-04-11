@@ -212,6 +212,12 @@ export const projectsApi = {
     api
       .get(`/projects/${projectId}/runs/${runId}/state`)
       .then((r) => r.data),
+
+  /** Delete a project and all associated data */
+  delete: (projectId: string): Promise<void> =>
+    api
+      .delete(`/projects/${projectId}`)
+      .then(() => undefined),
 };
 
 // ─── Artifacts API ────────────────────────────────────────────────────────────

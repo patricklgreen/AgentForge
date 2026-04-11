@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Optional
+import asyncio
+from typing import Any, Optional, Dict
 from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph, START, END
@@ -93,6 +94,7 @@ class AgentOrchestrator:
         self.db_connection_string = db_connection_string
         self._graph:       Any = None
         self._checkpointer: AsyncPostgresSaver | None = None
+        self._active_tasks: Dict[str, asyncio.Task] = {}  # Track running tasks by thread_id
 
         self.requirements_agent  = RequirementsAnalystAgent()
         self.architect_agent     = ArchitectAgent()
@@ -827,25 +829,63 @@ class AgentOrchestrator:
             return None
 
     async def cancel_run(self, run_id: str) -> bool:
-        """Cancel a run paused at a human-review interrupt."""
+        """Cancel a running or paused run."""
         if not self._graph:
             await self.initialize()
         config = {"configurable": {"thread_id": run_id}}
+        
+        # First, cancel any active tasks for this run
+        if run_id in self._active_tasks:
+            task = self._active_tasks[run_id]
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info(f"Successfully cancelled active task for run {run_id}")
+                except Exception as exc:
+                    logger.warning(f"Task cancellation for {run_id} raised: {exc}")
+            del self._active_tasks[run_id]
+        
         try:
             s = await self._graph.aget_state(config)
         except Exception as exc:
             logger.error(f"Cannot read state for cancel: {exc}")
             return False
-        if not s or not s.next:
-            logger.warning(f"Run {run_id} is not paused — cannot cancel")
+        
+        if not s:
+            logger.warning(f"No state found for run {run_id}")
             return False
+            
+        # Case 1: Run is paused at human-review interrupt
+        if s.next:
+            try:
+                async for _ in self._graph.astream(
+                    Command(resume={"action": "reject", "feedback": "Cancelled by user"}),
+                    config=config, stream_mode="updates",
+                ):
+                    pass
+                logger.info(f"Successfully cancelled paused run {run_id}")
+                return True
+            except Exception as exc:
+                logger.error(f"Cancel failed for paused run {run_id}: {exc}", exc_info=True)
+                return False
+        
+        # Case 2: Run is actively running - mark as cancelled in state
         try:
-            async for _ in self._graph.astream(
-                Command(resume={"action": "reject", "feedback": "Cancelled by user"}),
-                config=config, stream_mode="updates",
-            ):
-                pass
+            # Update the state to mark as cancelled
+            current_state = s.values or {}
+            cancelled_state = {
+                **current_state,
+                "current_step": "cancelled",
+                "error": "Build cancelled by user"
+            }
+            
+            # Update the checkpointer state directly
+            await self._graph.aupdate_state(config, cancelled_state)
+            logger.info(f"Successfully cancelled active run {run_id}")
             return True
+            
         except Exception as exc:
-            logger.error(f"Cancel failed for {run_id}: {exc}", exc_info=True)
+            logger.error(f"Cancel failed for active run {run_id}: {exc}", exc_info=True)
             return False

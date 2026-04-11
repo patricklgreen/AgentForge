@@ -105,7 +105,7 @@ export function NewProject() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.requirements.trim().length < 50) return;
+    if (!requirementsValid || !descriptionValid || !form.name.trim()) return;
     mutation.mutate(form);
   };
 
@@ -119,6 +119,8 @@ export function NewProject() {
 
   const requirementsLength = form.requirements.trim().length;
   const requirementsValid  = requirementsLength >= 50;
+  const descriptionLength  = form.description.trim().length;
+  const descriptionValid   = descriptionLength >= 20;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -167,8 +169,29 @@ export function NewProject() {
               value={form.description}
               onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
               placeholder="One-line description of what you're building"
-              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+              className={`w-full bg-gray-900 border rounded-xl px-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all ${
+                descriptionLength > 0 && !descriptionValid 
+                  ? 'border-yellow-600' 
+                  : 'border-gray-700'
+              }`}
             />
+            <div className="flex items-center justify-between mt-1.5">
+              <span
+                className={`text-xs ${
+                  descriptionValid || descriptionLength === 0 
+                    ? "text-gray-600" 
+                    : "text-yellow-600"
+                }`}
+              >
+                {descriptionLength} / 20 chars minimum
+              </span>
+              {!descriptionValid && descriptionLength > 0 && (
+                <span className="text-xs text-yellow-500 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Need {20 - descriptionLength} more characters
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Language & Framework */}
@@ -309,7 +332,7 @@ export function NewProject() {
           {/* Submit */}
           <button
             type="submit"
-            disabled={mutation.isPending || !requirementsValid || !form.name.trim()}
+            disabled={mutation.isPending || !requirementsValid || !descriptionValid || !form.name.trim()}
             className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-colors text-sm"
           >
             {mutation.isPending ? (

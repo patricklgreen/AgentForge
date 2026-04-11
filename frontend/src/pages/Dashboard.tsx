@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   PlusCircle,
   Clock,
@@ -10,6 +10,7 @@ import {
   AlertCircle,
   ChevronRight,
   Bot,
+  Trash2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { clsx } from "clsx";
@@ -66,6 +67,9 @@ const STATUS_CONFIG: Record<
 
 export function Dashboard() {
   const { user } = useAppStore();
+  const queryClient = useQueryClient();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+
   const {
     data: projects = [],
     isLoading,
@@ -74,6 +78,22 @@ export function Dashboard() {
     queryKey:       ["projects"],
     queryFn:        () => projectsApi.list(),
     refetchInterval: 5000,
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: (projectId: string) => projectsApi.delete(projectId),
+    onSuccess: (_, projectId) => {
+      // Invalidate projects query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      // Also invalidate the specific project query if cached
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      // Close delete confirmation
+      setShowDeleteConfirm(null);
+    },
+    onError: (error) => {
+      console.error("Failed to delete project:", error);
+      setShowDeleteConfirm(null);
+    },
   });
 
   const stats = {
@@ -160,13 +180,15 @@ export function Dashboard() {
             {projects.map((project) => {
               const statusCfg = STATUS_CONFIG[project.status];
               return (
-                <Link
+                <div
                   key={project.id}
-                  to={`/projects/${project.id}`}
-                  className="block bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-xl p-5 transition-all group"
+                  className="bg-gray-900 border border-gray-800 rounded-xl p-5 group"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
+                    <Link
+                      to={`/projects/${project.id}`}
+                      className="flex-1 min-w-0 hover:opacity-75 transition-opacity"
+                    >
                       <div className="flex items-center gap-3 mb-1.5 flex-wrap">
                         <h3 className="text-white font-semibold truncate">
                           {project.name}
@@ -200,12 +222,78 @@ export function Dashboard() {
                           })}
                         </span>
                       </div>
+                    </Link>
+                    
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Link
+                        to={`/projects/${project.id}`}
+                        className="p-2 text-gray-700 hover:text-gray-500 transition-colors"
+                        title="View project"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </Link>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setShowDeleteConfirm(project.id);
+                        }}
+                        className="p-2 text-gray-700 hover:text-red-400 transition-colors"
+                        title="Delete project"
+                        disabled={deleteProjectMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
-                    <ChevronRight className="h-5 w-5 text-gray-700 group-hover:text-gray-500 transition-colors flex-shrink-0 mt-1" />
                   </div>
-                </Link>
+                </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-md w-full">
+              <h3 className="text-lg font-semibold text-white mb-2">
+                Delete Project
+              </h3>
+              <p className="text-gray-400 text-sm mb-6">
+                Are you sure you want to delete this project? This will permanently remove:
+              </p>
+              <ul className="text-gray-400 text-sm mb-6 space-y-1 ml-4">
+                <li>• The project and all its configurations</li>
+                <li>• All build runs and their history</li>
+                <li>• All generated files and artifacts</li>
+                <li>• All associated data</li>
+              </ul>
+              <p className="text-red-400 text-sm font-medium mb-6">
+                This action cannot be undone.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(null)}
+                  className="flex-1 px-4 py-2 text-gray-400 border border-gray-700 rounded-xl hover:border-gray-600 transition-colors"
+                  disabled={deleteProjectMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteProjectMutation.mutate(showDeleteConfirm)}
+                  disabled={deleteProjectMutation.isPending}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
+                >
+                  {deleteProjectMutation.isPending ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Deleting...
+                    </div>
+                  ) : (
+                    "Delete Project"
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

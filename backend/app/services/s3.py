@@ -156,6 +156,55 @@ class S3Service:
         except Exception:
             return False
 
+    async def delete_object(self, s3_key: str) -> bool:
+        """Delete an S3 object. Returns True if successful."""
+        try:
+            await self._run(
+                self.client.delete_object,
+                Bucket=settings.s3_bucket_name,
+                Key=s3_key,
+            )
+            logger.info(f"Deleted S3 object: {s3_key}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to delete S3 object {s3_key}: {e}")
+            return False
+
+    async def delete_objects_by_prefix(self, prefix: str) -> int:
+        """Delete all S3 objects with the given prefix. Returns count of deleted objects."""
+        try:
+            # List objects with the prefix
+            response = await self._run(
+                self.client.list_objects_v2,
+                Bucket=settings.s3_bucket_name,
+                Prefix=prefix,
+            )
+            
+            if "Contents" not in response:
+                logger.info(f"No objects found with prefix: {prefix}")
+                return 0
+            
+            # Prepare objects for deletion
+            objects_to_delete = [{"Key": obj["Key"]} for obj in response["Contents"]]
+            
+            if not objects_to_delete:
+                return 0
+            
+            # Delete objects in batch
+            await self._run(
+                self.client.delete_objects,
+                Bucket=settings.s3_bucket_name,
+                Delete={"Objects": objects_to_delete},
+            )
+            
+            count = len(objects_to_delete)
+            logger.info(f"Deleted {count} S3 objects with prefix: {prefix}")
+            return count
+            
+        except Exception as e:
+            logger.error(f"Failed to delete S3 objects with prefix {prefix}: {e}")
+            return 0
+
     # ─── Utilities ────────────────────────────────────────────────────────────
 
     @staticmethod

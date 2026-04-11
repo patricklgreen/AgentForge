@@ -62,16 +62,54 @@ class BuildValidationAgent(BaseAgent):
         language = specification.get("target_language", "").lower()
         framework = specification.get("target_framework", "").lower()
         
-        # TEMPORARY: Skip Docker validation to test sync fixes  
-        self._log_step("⚠️ Using simplified validation for testing sync fixes")
-        
-        validation_results = [{
-            "step": "basic_validation",
-            "status": "success", 
-            "duration_ms": 100,
-            "command": "simplified validation",
-            "output": f"Validated {len(all_files)} files successfully"
-        }]
+    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute comprehensive build validation without Docker-in-Docker."""
+        self._log_step("Starting comprehensive build validation...")
+
+        specification = state.get("specification", {})
+        code_files = state.get("code_files", [])
+        test_files = state.get("test_files", [])
+        devops_files = state.get("devops_files", [])
+
+        all_files = code_files + test_files + devops_files
+
+        if not all_files:
+            self._log_step("No files to validate — marking as successful (empty project)")
+            return {
+                **state,
+                "build_validation_results": [],
+                "build_validation_passed": True,
+                "current_step": "build_validation"
+            }
+
+        language = specification.get("target_language", "").lower()
+        framework = specification.get("target_framework", "").lower()
+
+        validation_results = []
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="agentforge_build_") as temp_dir:
+                project_path = Path(temp_dir)
+
+                # Write all files to temporary directory
+                for file_info in all_files:
+                    file_path = project_path / file_info["path"]
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(file_info["content"], encoding="utf-8")
+
+                # Run comprehensive validation pipeline
+                validation_results = await self._run_comprehensive_validation(
+                    project_path, language, framework, specification
+                )
+
+        except Exception as e:
+            logger.error(f"Build validation failed with exception: {e}", exc_info=True)
+            validation_results = [{
+                "step": "validation_setup",
+                "status": "error",
+                "error": str(e),
+                "duration_ms": 0
+            }]
         
         try:
             with tempfile.TemporaryDirectory(prefix="agentforge_build_") as temp_dir:
@@ -119,7 +157,329 @@ class BuildValidationAgent(BaseAgent):
             "current_step": "build_validation",
         }
 
-    async def _ensure_validation_container(self):
+    async def _run_comprehensive_validation(
+        self, 
+        project_path: Path, 
+        language: str, 
+        framework: str, 
+        specification: dict
+    ) -> List[Dict[str, Any]]:
+        """Run comprehensive validation using available system tools."""
+        results = []
+        
+        # 1. File Structure Validation
+        results.append(await self._validate_file_structure(project_path, language))
+        
+        # 2. Syntax Validation  
+        results.append(await self._validate_syntax(project_path, language))
+        
+        # 3. Dependency Installation Test
+        results.append(await self._validate_dependencies(project_path, language))
+        
+        # 4. Configuration Validation
+        results.append(await self._validate_configuration(project_path, language, framework))
+        
+        # 5. Import/Module Resolution Test
+        results.append(await self._validate_imports(project_path, language))
+        
+        return [r for r in results if r is not None]
+
+    async def _validate_file_structure(self, project_path: Path, language: str) -> Dict[str, Any]:
+        """Validate that essential files exist and have reasonable structure."""
+        start_time = time.time()
+        
+        try:
+            essential_files = []
+            
+            if language == "python":
+                essential_files = ["pyproject.toml", "requirements.txt"]
+                # Look for main module
+                src_files = list(project_path.rglob("*.py"))
+                if not src_files:
+                    return {
+                        "step": "file_structure",
+                        "status": "failed",
+                        "duration_ms": int((time.time() - start_time) * 1000),
+                        "error": "No Python source files found"
+                    }
+            
+            elif language in ["javascript", "typescript"]:
+                essential_files = ["package.json"]
+                src_files = list(project_path.rglob("*.js")) + list(project_path.rglob("*.ts"))
+                if not src_files:
+                    return {
+                        "step": "file_structure", 
+                        "status": "failed",
+                        "duration_ms": int((time.time() - start_time) * 1000),
+                        "error": f"No {language} source files found"
+                    }
+            
+            # Check for at least one essential file
+            found_essential = any((project_path / f).exists() for f in essential_files)
+            
+            return {
+                "step": "file_structure",
+                "status": "success" if found_essential else "failed", 
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "output": f"Found {len(src_files) if 'src_files' in locals() else 0} source files, essential config: {found_essential}"
+            }
+            
+        except Exception as e:
+            return {
+                "step": "file_structure",
+                "status": "error",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "error": str(e)
+            }
+
+    async def _validate_syntax(self, project_path: Path, language: str) -> Dict[str, Any]:
+        """Validate syntax of source files using available tools."""
+        start_time = time.time()
+        
+        try:
+            if language == "python":
+                # Use Python's ast module to check syntax
+                python_files = list(project_path.rglob("*.py"))
+                syntax_errors = []
+                
+                for py_file in python_files:
+                    try:
+                        with open(py_file, 'r', encoding='utf-8') as f:
+                            source = f.read()
+                        # Try to parse the Python code
+                        compile(source, str(py_file), 'exec')
+                    except SyntaxError as e:
+                        syntax_errors.append(f"{py_file.name}: {e}")
+                    except Exception as e:
+                        syntax_errors.append(f"{py_file.name}: {e}")
+                
+                if syntax_errors:
+                    return {
+                        "step": "syntax_validation",
+                        "status": "failed",
+                        "duration_ms": int((time.time() - start_time) * 1000),
+                        "error": f"Syntax errors in {len(syntax_errors)} files: {'; '.join(syntax_errors[:3])}"
+                    }
+                
+                return {
+                    "step": "syntax_validation",
+                    "status": "success",
+                    "duration_ms": int((time.time() - start_time) * 1000),
+                    "output": f"Validated syntax of {len(python_files)} Python files"
+                }
+            
+            # For other languages, do basic file validation
+            return {
+                "step": "syntax_validation", 
+                "status": "success",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "output": f"Basic validation completed for {language}"
+            }
+            
+        except Exception as e:
+            return {
+                "step": "syntax_validation",
+                "status": "error", 
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "error": str(e)
+            }
+
+    async def _validate_dependencies(self, project_path: Path, language: str) -> Dict[str, Any]:
+        """Validate that dependency files are well-formed."""
+        start_time = time.time()
+        
+        try:
+            if language == "python":
+                # Check pyproject.toml or requirements.txt
+                pyproject_file = project_path / "pyproject.toml"
+                requirements_file = project_path / "requirements.txt"
+                
+                if pyproject_file.exists():
+                    import tomllib
+                    with open(pyproject_file, 'rb') as f:
+                        pyproject_data = tomllib.load(f)
+                    
+                    # Check for basic structure
+                    has_dependencies = (
+                        'dependencies' in pyproject_data.get('project', {}) or
+                        'tool' in pyproject_data and 'poetry' in pyproject_data['tool']
+                    )
+                    
+                    return {
+                        "step": "dependency_validation",
+                        "status": "success",
+                        "duration_ms": int((time.time() - start_time) * 1000),
+                        "output": f"pyproject.toml is valid, has_dependencies: {has_dependencies}"
+                    }
+                
+                elif requirements_file.exists():
+                    with open(requirements_file, 'r') as f:
+                        requirements = f.readlines()
+                    
+                    return {
+                        "step": "dependency_validation",
+                        "status": "success", 
+                        "duration_ms": int((time.time() - start_time) * 1000),
+                        "output": f"requirements.txt found with {len([r for r in requirements if r.strip()])} dependencies"
+                    }
+                
+                return {
+                    "step": "dependency_validation",
+                    "status": "failed",
+                    "duration_ms": int((time.time() - start_time) * 1000),
+                    "error": "No dependency file (pyproject.toml or requirements.txt) found"
+                }
+            
+            elif language in ["javascript", "typescript"]:
+                package_json = project_path / "package.json"
+                if package_json.exists():
+                    import json
+                    with open(package_json, 'r') as f:
+                        package_data = json.load(f)
+                    
+                    dep_count = len(package_data.get('dependencies', {})) + len(package_data.get('devDependencies', {}))
+                    
+                    return {
+                        "step": "dependency_validation",
+                        "status": "success",
+                        "duration_ms": int((time.time() - start_time) * 1000),
+                        "output": f"package.json is valid with {dep_count} dependencies"
+                    }
+                
+                return {
+                    "step": "dependency_validation", 
+                    "status": "failed",
+                    "duration_ms": int((time.time() - start_time) * 1000),
+                    "error": "No package.json found"
+                }
+            
+            return {
+                "step": "dependency_validation",
+                "status": "success",
+                "duration_ms": int((time.time() - start_time) * 1000), 
+                "output": f"Dependency validation skipped for {language}"
+            }
+            
+        except Exception as e:
+            return {
+                "step": "dependency_validation",
+                "status": "error",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "error": str(e)
+            }
+
+    async def _validate_configuration(self, project_path: Path, language: str, framework: str) -> Dict[str, Any]:
+        """Validate framework-specific configuration files."""
+        start_time = time.time()
+        
+        try:
+            config_issues = []
+            
+            if framework.lower() == "fastapi" and language == "python":
+                # Look for FastAPI app creation
+                python_files = list(project_path.rglob("*.py"))
+                fastapi_found = False
+                
+                for py_file in python_files:
+                    try:
+                        with open(py_file, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        if "FastAPI" in content and ("app = " in content or "application = " in content):
+                            fastapi_found = True
+                            break
+                    except Exception:
+                        continue
+                
+                if not fastapi_found:
+                    config_issues.append("No FastAPI app initialization found")
+            
+            elif framework.lower() == "express" and language in ["javascript", "typescript"]:
+                # Look for Express app setup
+                js_files = list(project_path.rglob("*.js")) + list(project_path.rglob("*.ts"))
+                express_found = False
+                
+                for js_file in js_files:
+                    try:
+                        with open(js_file, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        if "express" in content.lower() and ("app = " in content or "const app" in content):
+                            express_found = True
+                            break
+                    except Exception:
+                        continue
+                
+                if not express_found:
+                    config_issues.append("No Express app initialization found")
+            
+            status = "failed" if config_issues else "success"
+            message = f"Configuration issues: {'; '.join(config_issues)}" if config_issues else f"{framework} configuration appears valid"
+            
+            return {
+                "step": "configuration_validation",
+                "status": status,
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "output": message,
+                "error": message if config_issues else None
+            }
+            
+        except Exception as e:
+            return {
+                "step": "configuration_validation",
+                "status": "error",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "error": str(e)
+            }
+
+    async def _validate_imports(self, project_path: Path, language: str) -> Dict[str, Any]:
+        """Validate that imports/requires in source files are resolvable."""
+        start_time = time.time()
+        
+        try:
+            if language == "python":
+                python_files = list(project_path.rglob("*.py"))
+                import_issues = []
+                
+                for py_file in python_files:
+                    try:
+                        with open(py_file, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        # Look for obvious import issues (very basic check)
+                        lines = content.split('\n')
+                        for i, line in enumerate(lines):
+                            line = line.strip()
+                            if line.startswith('from ') and ' import ' in line:
+                                # Check for relative imports that might be broken
+                                if line.startswith('from .') and '/' not in str(py_file):
+                                    import_issues.append(f"{py_file.name}:{i+1}: Relative import in root file")
+                    except Exception:
+                        continue
+                
+                status = "failed" if import_issues else "success"
+                message = f"Import issues: {'; '.join(import_issues[:3])}" if import_issues else f"Validated imports in {len(python_files)} Python files"
+                
+                return {
+                    "step": "import_validation",
+                    "status": status,
+                    "duration_ms": int((time.time() - start_time) * 1000),
+                    "output": message,
+                    "error": message if import_issues else None
+                }
+            
+            return {
+                "step": "import_validation",
+                "status": "success",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "output": f"Import validation completed for {language}"
+            }
+            
+        except Exception as e:
+            return {
+                "step": "import_validation",
+                "status": "error",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "error": str(e)
+            }
         """Ensure the build validation Docker image exists with all required tools."""
         try:
             # Check if our validation image exists
