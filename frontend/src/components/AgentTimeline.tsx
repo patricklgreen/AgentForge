@@ -54,6 +54,12 @@ const STEPS: PipelineStep[] = [
     agent: "TestWriter",
   },
   {
+    id:    "build_validation",
+    label: "Build Validation",
+    agent: "BuildValidator",
+    icon:  <CheckCircle className="h-4 w-4" />,
+  },
+  {
     id:    "code_review",
     label: "Code Review",
     agent: "CodeReviewer",

@@ -180,6 +180,7 @@ export function ProjectDetail() {
   const [interruptPayload, setInterruptPayload] = useState<InterruptPayload | null>(null);
   const [lastFeedbackTime, setLastFeedbackTime] = useState<number>(0); // Track when feedback was last submitted
   const [lastFeedbackStep, setLastFeedbackStep] = useState<string | null>(null); // Track which step we last gave feedback for
+  const [shownInterruptIds, setShownInterruptIds] = useState<Set<string>>(new Set()); // Track which interrupts we've already shown
   const [activeTab,        setActiveTab]        = useState<ActiveTab>("timeline");
   const [liveCodeFiles,    setLiveCodeFiles]    = useState<CodeFile[]>([]);
   const [isDownloading,    setIsDownloading]    = useState(false);
@@ -192,6 +193,33 @@ export function ProjectDetail() {
   
   // Automatically refresh tokens during long-running pipelines
   useTokenRefresh();
+
+  // ─── Helper Functions ──────────────────────────────────────────────────────────
+
+  /**
+   * Safely show an interrupt payload modal with deduplication.
+   * Prevents showing the same interrupt multiple times.
+   */
+  const showInterruptPayload = useCallback((payload: InterruptPayload, source: string) => {
+    // Create a unique ID for this interrupt based on step and a hash of the payload
+    const payloadHash = JSON.stringify(payload.data).substring(0, 8);
+    const interruptId = `${payload.step}-${payloadHash}`;
+    
+    console.log(`🔔 Attempting to show interrupt from ${source}:`, { 
+      step: payload.step, 
+      interruptId,
+      alreadyShown: shownInterruptIds.has(interruptId),
+      currentModal: !!interruptPayload
+    });
+
+    // Only show if we haven't shown this exact interrupt before
+    if (!shownInterruptIds.has(interruptId)) {
+      setInterruptPayload(payload);
+      setShownInterruptIds(prev => new Set([...Array.from(prev), interruptId]));
+    } else {
+      console.log(`🔕 Skipping duplicate interrupt: ${interruptId}`);
+    }
+  }, [shownInterruptIds, interruptPayload]);
 
   // ─── Data Fetching ──────────────────────────────────────────────────────────
 
@@ -277,7 +305,7 @@ export function ProjectDetail() {
 
         // Handle interrupt — show review modal
         if (msg.type === "interrupt" && msg.data) {
-          setInterruptPayload(msg.data as InterruptPayload);
+          showInterruptPayload(msg.data as InterruptPayload, "websocket");
           queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
           queryClient.invalidateQueries({ queryKey: ["project", projectId] });
         }
@@ -310,7 +338,7 @@ export function ProjectDetail() {
       ws.connect();
       wsRef.current = ws;
     },
-    [addLogEntry, projectId, queryClient]
+    [addLogEntry, projectId, queryClient, showInterruptPayload]
   );
 
   // Connect when there's an active run
@@ -327,10 +355,7 @@ export function ProjectDetail() {
       // Restore interrupt payload from DB on reconnect or show new interrupt
       if (latestRun.status === "waiting_review" && latestRun.interrupt_payload) {
         const newPayload = latestRun.interrupt_payload as InterruptPayload;
-        // Show modal if we don't have a payload, or if the payload is different (new step)
-        if (!interruptPayload || interruptPayload.step !== newPayload.step) {
-          setInterruptPayload(newPayload);
-        }
+        showInterruptPayload(newPayload, "connection");
       }
     }
 
@@ -339,7 +364,7 @@ export function ProjectDetail() {
       wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestRun?.id, latestRun?.status]);
+  }, [latestRun?.id, latestRun?.status, showInterruptPayload]);
 
   // ─── Fallback: Periodic check for missed review modals ────────────────────
   
@@ -359,7 +384,7 @@ export function ProjectDetail() {
             payload.step !== lastFeedbackStep &&
             timeSinceLastFeedback > 180000) {
           console.log("🔄 Fallback: Auto-showing missed review modal");
-          setInterruptPayload(payload);
+          showInterruptPayload(payload, "fallback");
         }
       }
     };
@@ -369,7 +394,7 @@ export function ProjectDetail() {
     const interval = setInterval(checkForPendingReviews, 10000);
 
     return () => clearInterval(interval);
-  }, [runs, interruptPayload, lastFeedbackTime, lastFeedbackStep]);
+  }, [runs, interruptPayload, lastFeedbackTime, lastFeedbackStep, showInterruptPayload]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -386,6 +411,7 @@ export function ProjectDetail() {
       setLiveLogEntries([]);
       setLiveCodeFiles([]);
       setInterruptPayload(null);
+      setShownInterruptIds(new Set()); // Clear shown interrupts for new run
       setActiveTab("timeline");
       queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });

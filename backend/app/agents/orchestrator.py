@@ -11,6 +11,7 @@ from app.agents.architect import ArchitectAgent
 from app.agents.code_generator import CodeGeneratorAgent
 from app.agents.validation_agent import ValidationAgent
 from app.agents.test_writer import TestWriterAgent
+from app.agents.build_validation_agent import BuildValidationAgent
 from app.agents.code_reviewer import CodeReviewerAgent
 from app.agents.devops_agent import DevOpsAgent
 from app.agents.documentation_agent import DocumentationAgent
@@ -29,33 +30,35 @@ class ProjectState(TypedDict):
     """
     Complete state threaded through every node in the pipeline.
 
-    run_id             — LangGraph thread_id == ProjectRun.thread_id.
-                         Also the WebSocket channel key and PostgreSQL checkpoint key.
-                         The DB primary key (ProjectRun.id) lives only in routes.
-    validation_results — Populated by ValidationAgent; one record per source file.
-    quality_violations — Reserved for optional QualityGateAgent; empty list = OK.
-    zip_url            — 24-hour pre-signed S3 URL written by packaging node;
-                         persisted so the frontend can retrieve it at any time
-                         via GET /projects/{id}/runs/{id}/state.
+    run_id                    — LangGraph thread_id == ProjectRun.thread_id.
+                                Also the WebSocket channel key and PostgreSQL checkpoint key.
+                                The DB primary key (ProjectRun.id) lives only in routes.
+    validation_results        — Populated by ValidationAgent; one record per source file.
+    build_validation_results  — Populated by BuildValidationAgent; build/test/runtime validation.
+    quality_violations        — Reserved for optional QualityGateAgent; empty list = OK.
+    zip_url                   — 24-hour pre-signed S3 URL written by packaging node;
+                                persisted so the frontend can retrieve it at any time
+                                via GET /projects/{id}/runs/{id}/state.
     """
-    project_id:          str
-    run_id:              str
-    requirements:        str
-    target_language:     str
-    target_framework:    Optional[str]
-    specification:       Optional[dict]
-    architecture:        Optional[dict]
-    code_files:          list[dict]
-    test_files:          list[dict]
-    review_comments:     Optional[dict]
-    devops_files:        list[dict]
-    documentation:       Optional[dict]
-    human_feedback:      list[dict]
-    current_step:        str
-    error:               Optional[str]
-    validation_results:  list[dict]
-    quality_violations:  list[str]
-    zip_url:             Optional[str]
+    project_id:               str
+    run_id:                   str
+    requirements:             str
+    target_language:          str
+    target_framework:         Optional[str]
+    specification:            Optional[dict]
+    architecture:             Optional[dict]
+    code_files:               list[dict]
+    test_files:               list[dict]
+    review_comments:          Optional[dict]
+    devops_files:             list[dict]
+    documentation:            Optional[dict]
+    human_feedback:           list[dict]
+    current_step:             str
+    error:                    Optional[str]
+    validation_results:       list[dict]
+    build_validation_results: list[dict]
+    quality_violations:       list[str]
+    zip_url:                  Optional[str]
 
 
 # ─── Orchestrator ─────────────────────────────────────────────────────────────
@@ -73,6 +76,7 @@ class AgentOrchestrator:
           → generate_code
           → validate_code              ← catches syntax errors, auto-fixes
           → write_tests
+          → build_validate             ← NEW: builds, tests, runtime validation
           → review_code
           → human_review_code          (interrupt — approve/modify/reject)
           → setup_devops
@@ -96,6 +100,7 @@ class AgentOrchestrator:
         self.validation_agent    = ValidationAgent()
         self.package_validator   = PackageValidationAgent()
         self.test_writer         = TestWriterAgent()
+        self.build_validator     = BuildValidationAgent()
         self.code_reviewer       = CodeReviewerAgent()
         self.devops_agent        = DevOpsAgent()
         self.documentation_agent = DocumentationAgent()
@@ -133,6 +138,7 @@ class AgentOrchestrator:
         wf.add_node("validate_code",             self._validate_code_node)
         wf.add_node("validate_packages",         self._validate_packages_node)
         wf.add_node("write_tests",               self._write_tests_node)
+        wf.add_node("build_validate",            self._build_validate_node)
         wf.add_node("review_code",               self._review_code_node)
         wf.add_node("human_review_code",         self._human_review_code_node)
         wf.add_node("setup_devops",              self._setup_devops_node)
@@ -159,8 +165,9 @@ class AgentOrchestrator:
         wf.add_edge("generate_code", "validate_code")
         wf.add_edge("validate_code", "validate_packages")  
         wf.add_edge("validate_packages", "write_tests")
-        wf.add_edge("write_tests",   "review_code")
-        wf.add_edge("review_code",   "human_review_code")
+        wf.add_edge("write_tests",     "build_validate")
+        wf.add_edge("build_validate",  "review_code")
+        wf.add_edge("review_code",     "human_review_code")
 
         wf.add_conditional_edges(
             "human_review_code", self._route_after_review,
@@ -323,6 +330,29 @@ class AgentOrchestrator:
                            f"Test suite complete — {tc} files (targeting ≥90% coverage)",
                            {"test_count": tc})
         return {**result, "current_step": "test_writing"}
+
+    async def _build_validate_node(self, state: ProjectState) -> ProjectState:
+        await self._notify(state, "agent_start", "BuildValidator",
+                           "build_validation", "Validating project builds and runs successfully...")
+        result = await self.build_validator.execute(state)
+        
+        validation_results = result.get("build_validation_results", [])
+        passed_steps = sum(1 for r in validation_results if r.get("status") == "success")
+        total_steps = len(validation_results)
+        build_passed = result.get("build_validation_passed", False)
+        
+        status_msg = "Build validation passed" if build_passed else "Build validation failed"
+        
+        await self._notify(state, "agent_complete", "BuildValidator",
+                           "build_validation",
+                           f"{status_msg} — {passed_steps}/{total_steps} steps passed",
+                           {
+                               "validation_results": validation_results,
+                               "build_passed": build_passed,
+                               "steps_passed": passed_steps,
+                               "total_steps": total_steps
+                           })
+        return {**result, "current_step": "build_validation"}
 
     async def _review_code_node(self, state: ProjectState) -> ProjectState:
         await self._notify(state, "agent_start", "CodeReviewer",
