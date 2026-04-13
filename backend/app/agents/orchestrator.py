@@ -134,7 +134,7 @@ class AgentOrchestrator:
         """Set the cost tracker for all agents."""
         agents = [
             self.requirements_agent, self.architect_agent, self.code_generator,
-            self.validator_agent, self.package_validator, self.test_writer,
+            self.validation_agent, self.package_validator, self.test_writer,
             self.build_validator, self.code_reviewer, self.devops_agent,
             self.documentation_agent
         ]

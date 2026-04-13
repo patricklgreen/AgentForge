@@ -151,6 +151,7 @@ async def start_project_run(
         requirements=project.requirements,
         target_language=project.target_language,
         target_framework=project.target_framework,
+        visual_references=project.visual_references,
     )
     return run
 
@@ -468,6 +469,7 @@ async def _run_agents(
     requirements:     str,
     target_language:  str,
     target_framework: Optional[str],
+    visual_references: Optional[list],
 ) -> None:
     """
     Background task: execute the full agent pipeline for a brand-new run.
@@ -494,7 +496,7 @@ async def _run_agents(
             requirements=requirements,
             target_language=target_language,
             target_framework=target_framework,
-            visual_references=project.visual_references,
+            visual_references=visual_references,
         )
         logger.info(f"✅ Orchestrator.start_run completed for thread {thread_id}")
 

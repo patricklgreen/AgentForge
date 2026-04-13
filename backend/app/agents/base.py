@@ -39,9 +39,18 @@ class BaseAgent(ABC):
         This ensures all agents follow consistent, high-quality patterns
         based on the deftai/directive framework.
         """
-        specification = state.get("specification", {})
-        target_language = specification.get("target_language", "Python")
-        target_framework = specification.get("target_framework")
+        specification = state.get("specification") or {}
+        
+        # For early agents (like RequirementsAnalyst), we might not have specification yet
+        # In that case, use state-level language/framework info
+        target_language = (
+            specification.get("target_language") or 
+            state.get("target_language", "Python")
+        )
+        target_framework = (
+            specification.get("target_framework") or 
+            state.get("target_framework")
+        )
         
         # Determine project type from requirements
         requirements = state.get("requirements", "").lower()
