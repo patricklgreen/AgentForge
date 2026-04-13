@@ -2,15 +2,28 @@ import json
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.agents.directive_config_generator import directive_config_generator
 
-_SYSTEM_PROMPT = """You are a Senior DevOps/Platform Engineer who creates \
-production-grade infrastructure and deployment configurations. You specialise in:
-- Docker multi-stage builds for minimal, secure images
-- CI/CD pipelines (GitHub Actions)
-- docker-compose for local development
-- Environment configuration management
-- Health checks and graceful shutdown
-- Security hardening (non-root users, read-only filesystems, secret management)"""
+_SYSTEM_PROMPT = """You are a Senior DevOps/Platform Engineer following the deftai/directive framework.
+
+You create production-grade infrastructure and deployment configurations that follow:
+! Directive-based best practices and patterns
+! Security-first approach (non-root users, minimal images, secrets management)  
+! Docker multi-stage builds for minimal, secure images
+! Modern CI/CD pipelines (GitHub Actions, automated testing)
+! Task-based automation (Taskfile.yml over Makefiles)
+! Infrastructure as Code principles
+! Observability and monitoring integration
+! Cross-platform compatibility (Linux, macOS, Windows)
+
+~ Follow container security best practices
+~ Use Alpine Linux for smaller images where appropriate  
+~ Include comprehensive health checks and monitoring
+~ Implement proper logging and error handling
+≉ Use 'latest' tags in production configurations
+⊗ Include secrets or credentials in configuration files
+
+Generate production-ready configurations that follow directive standards."""
 
 
 class DevOpsAgent(BaseAgent):
@@ -41,11 +54,37 @@ class DevOpsAgent(BaseAgent):
             )
 
         devops_files: list[dict] = []
+        
+        # Generate directive-based configuration files first
+        project_directive = await directive_config_generator.generate_project_directive(specification)
+        agents_md = await directive_config_generator.generate_agents_md(specification)
+        taskfile_yml = await directive_config_generator.generate_taskfile_yml(specification)
+        
+        # Add directive configuration files
+        devops_files.append({
+            "path": "PROJECT.md",
+            "content": project_directive,
+            "type": "directive_config",
+            "language": "markdown"
+        })
+        devops_files.append({
+            "path": "AGENTS.md", 
+            "content": agents_md,
+            "type": "directive_config",
+            "language": "markdown"
+        })
+        devops_files.append({
+            "path": "Taskfile.yml",
+            "content": taskfile_yml,
+            "type": "taskfile",
+            "language": "yaml"
+        })
+        
+        # Generate traditional DevOps files
         devops_files.append(await self._generate_dockerfile(specification, feedback_context))
         devops_files.append(await self._generate_docker_compose(specification, architecture))
         devops_files.append(await self._generate_cicd(specification))
         devops_files.append(await self._generate_env_example(specification))
-        devops_files.append(await self._generate_makefile(specification))
 
         self._log_step(f"DevOps setup complete — {len(devops_files)} files")
 
@@ -142,21 +181,43 @@ class DevOpsAgent(BaseAgent):
                 "- Indication of which are required vs optional\n\n"
                 "Output ONLY the .env.example content."
             ),
+            include_directive=True,
+            state={
+                "specification": specification,
+                "requirements": specification.get("project_description", "")
+            }
         )
         return {"path": ".env.example", "content": content, "type": "config", "language": "bash"}
 
     async def _generate_makefile(self, specification: dict) -> dict:
+        """Generate a Taskfile.yml (directive-preferred) instead of Makefile"""
         content = await self._invoke_llm(
             system_prompt=_SYSTEM_PROMPT,
             user_message=(
-                f"Generate a Makefile.\n"
+                f"Generate a Taskfile.yml for task automation.\n"
                 f"Project: {specification.get('project_name')}\n"
                 f"Language: {specification.get('target_language')}\n"
+                f"Framework: {specification.get('target_framework', '')}\n"
                 f"Test framework: {specification.get('tech_stack', {}).get('testing', 'pytest')}\n\n"
-                "Include targets: help, setup, dev, test, test-cov, lint, format, "
-                "build, up, down, migrate, clean.\n"
-                "Add a self-documenting help target using ## comments.\n\n"
-                "Output ONLY the Makefile content."
+                "Follow the directive framework task automation standards:\n"
+                "Include these standard tasks with proper desc: fields:\n"
+                "- dev: Start development environment\n"
+                "- test: Run tests in watch mode\n"
+                "- test:coverage: Run tests with coverage report\n"
+                "- check: Pre-commit checks (lint, format, type-check, test)\n"
+                "- build: Build the application\n"
+                "- clean: Clean build artifacts\n"
+                "- setup: Install dependencies and setup project\n"
+                "- format: Format code\n"
+                "- lint: Run linter\n\n"
+                "Use proper task dependencies, preconditions, and sources/generates where appropriate.\n"
+                "Ensure cross-platform compatibility.\n\n"
+                "Output ONLY the Taskfile.yml content."
             ),
+            include_directive=True,
+            state={
+                "specification": specification,
+                "requirements": specification.get("project_description", "")
+            }
         )
-        return {"path": "Makefile", "content": content, "type": "makefile", "language": "makefile"}
+        return {"path": "Taskfile.yml", "content": content, "type": "taskfile", "language": "yaml"}

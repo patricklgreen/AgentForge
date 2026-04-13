@@ -161,6 +161,11 @@ class TestWriterAgent(BaseAgent):
         content = await self._invoke_llm(
             system_prompt=_SYSTEM_PROMPT,
             user_message=user_message,
+            include_directive=True,
+            state={
+                "specification": specification,
+                "requirements": specification.get("project_description", "")
+            }
         )
 
         return {
@@ -203,6 +208,11 @@ class TestWriterAgent(BaseAgent):
         content = await self._invoke_llm(
             system_prompt=_SYSTEM_PROMPT,
             user_message=user_message,
+            include_directive=True,
+            state={
+                "specification": specification,
+                "requirements": specification.get("project_description", "")
+            }
         )
 
         lang_lower = language.lower()

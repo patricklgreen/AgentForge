@@ -124,4 +124,9 @@ class CodeReviewerAgent(BaseAgent):
         return await self._invoke_llm_json(
             system_prompt=_SYSTEM_PROMPT,
             user_message=user_message,
+            include_directive=True,
+            state={
+                "specification": specification,
+                "requirements": "Review code against directive standards"
+            }
         )

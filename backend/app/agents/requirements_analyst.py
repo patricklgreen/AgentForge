@@ -255,6 +255,8 @@ class RequirementsAnalystAgent(BaseAgent):
             system_prompt=system_prompt,
             user_message=user_message,
             use_fast_model=True,  # Use Haiku for more reliable JSON output
+            include_directive=True,
+            state=state
         )
 
         specification = self._post_process(

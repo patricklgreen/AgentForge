@@ -40,29 +40,6 @@ class BuildValidationAgent(BaseAgent):
         self.validation_image = "agentforge/build-validator:latest"
 
     async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute build validation workflow in containerized environment."""
-        self._log_step("Starting containerized build validation...")
-        
-        specification = state.get("specification", {})
-        code_files = state.get("code_files", [])
-        test_files = state.get("test_files", [])
-        devops_files = state.get("devops_files", [])
-        
-        all_files = code_files + test_files + devops_files
-        
-        if not all_files:
-            self._log_step("No files to validate — marking as successful (empty project)")
-            return {
-                **state, 
-                "build_validation_results": [], 
-                "build_validation_passed": True,
-                "current_step": "build_validation"
-            }
-        
-        language = specification.get("target_language", "").lower()
-        framework = specification.get("target_framework", "").lower()
-        
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute comprehensive build validation without Docker-in-Docker."""
         self._log_step("Starting comprehensive build validation...")
 

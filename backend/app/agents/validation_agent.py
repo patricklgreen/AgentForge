@@ -229,6 +229,7 @@ class ValidationAgent(BaseAgent):
                     '[{"description": "str", "line_hint": "str"}]}'
                 ),
                 use_fast_model=True,
+                include_directive=False,  # Don't need directive context for syntax checking
             )
             if result.get("has_errors") and result.get("errors"):
                 return [
@@ -356,6 +357,11 @@ class ValidationAgent(BaseAgent):
                     "Return ONLY the corrected file content."
                 ),
                 use_fast_model=True,
+                include_directive=True,
+                state={
+                    "specification": {"target_language": language},
+                    "requirements": "Fix syntax errors while maintaining directive standards"
+                }
             )
 
             # Verify the fix for Python (instant, no extra LLM call)

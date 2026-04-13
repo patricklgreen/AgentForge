@@ -171,7 +171,12 @@ Output as JSON with structure:
         try:
             response = await self._invoke_llm_json(
                 system_prompt=_SYSTEM_PROMPT,
-                user_message=user_message
+                user_message=user_message,
+                include_directive=True,
+                state={
+                    "specification": {"target_language": "javascript", "target_framework": "node"},
+                    "requirements": "Validate package.json with directive standards"
+                }
             )
             
             return {
@@ -209,7 +214,12 @@ Provide JSON response with issues and corrected config.
         try:
             response = await self._invoke_llm_json(
                 system_prompt=_SYSTEM_PROMPT,
-                user_message=user_message
+                user_message=user_message,
+                include_directive=True,
+                state={
+                    "specification": {"target_language": "typescript", "target_framework": "typescript"},
+                    "requirements": "Validate TypeScript config with directive standards"
+                }
             )
             
             return {
@@ -246,7 +256,12 @@ Provide JSON response with issues and corrections.
         try:
             response = await self._invoke_llm_json(
                 system_prompt=_SYSTEM_PROMPT,
-                user_message=user_message
+                user_message=user_message,
+                include_directive=True,
+                state={
+                    "specification": {"target_language": "docker", "target_framework": "docker"},
+                    "requirements": "Validate Dockerfile with directive security standards"
+                }
             )
             
             return {

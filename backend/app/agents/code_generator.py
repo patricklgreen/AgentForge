@@ -181,6 +181,11 @@ class CodeGeneratorAgent(BaseAgent):
                 system_prompt=_SYSTEM_PROMPT,
                 user_message=user_message,
                 use_fast_model=False,  # Use Opus for better code generation and higher token limit
+                include_directive=True,
+                state={
+                    "specification": specification,
+                    "requirements": specification.get("project_description", "")
+                }
             )
             return {
                 "path":        file_path,

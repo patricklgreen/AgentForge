@@ -52,6 +52,8 @@ class ArchitectAgent(BaseAgent):
         architecture = await self._invoke_llm_json(
             system_prompt=_SYSTEM_PROMPT,
             user_message=user_message,
+            include_directive=True,
+            state=state
         )
 
         files_count = len(architecture.get("files_to_generate", []))
