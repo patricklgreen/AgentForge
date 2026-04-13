@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, text
 from sqlalchemy.orm import selectinload
@@ -24,6 +24,7 @@ from app.schemas.project import (
 from app.agents.orchestrator import AgentOrchestrator
 from app.config import get_settings
 from app.auth.dependencies import CurrentUser
+from app.services.s3 import s3_service
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -60,6 +61,7 @@ async def create_project(
         requirements=data.requirements,
         target_language=data.target_language,
         target_framework=data.target_framework,
+        visual_references=[ref.model_dump() for ref in (data.visual_references or [])] if data.visual_references else None,
         status=ProjectStatus.PENDING,
     )
     db.add(project)
@@ -492,6 +494,7 @@ async def _run_agents(
             requirements=requirements,
             target_language=target_language,
             target_framework=target_framework,
+            visual_references=project.visual_references,
         )
         logger.info(f"✅ Orchestrator.start_run completed for thread {thread_id}")
 
@@ -700,6 +703,65 @@ async def get_project_cost_analytics(
         "recent_runs": run_costs[:10],  # Last 10 runs
         "cost_trend": run_costs  # All runs for trend analysis
     }
+
+
+@router.post("/visual-reference/upload")
+async def upload_visual_reference(
+    file: UploadFile = File(...),
+    description: Optional[str] = None,
+    user: CurrentUser = CurrentUser,
+) -> dict:
+    """Upload a visual reference image (mockup, design, screenshot)."""
+    
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(
+            status_code=400,
+            detail="Only image files are allowed for visual references"
+        )
+    
+    # Validate file size (max 10MB)
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    file.file.seek(0, 2)  # Seek to end
+    file_size = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail="File size must be less than 10MB"
+        )
+    
+    try:
+        # Generate S3 key
+        file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+        s3_key = f"visual-references/{user.id}/{uuid.uuid4()}.{file_extension}"
+        
+        # Upload to S3
+        await s3_service.upload_file(
+            file_obj=file.file,
+            s3_key=s3_key,
+            content_type=file.content_type
+        )
+        
+        # Generate presigned URL for immediate preview
+        preview_url = await s3_service.generate_presigned_url(s3_key, expires_in=3600)  # 1 hour
+        
+        return {
+            "s3_key": s3_key,
+            "file_name": file.filename,
+            "file_size": file_size,
+            "content_type": file.content_type,
+            "description": description,
+            "preview_url": preview_url
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to upload visual reference: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to upload visual reference"
+        )
 
 
 @router.delete("/{project_id}", status_code=204)

@@ -230,6 +230,23 @@ export const projectsApi = {
     api
       .get(`/projects/${projectId}/cost-analytics`)
       .then((r) => r.data),
+
+  /** Upload visual reference file */
+  uploadVisualReference: (file: File, description?: string): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (description) {
+      formData.append('description', description);
+    }
+    
+    return api
+      .post('/projects/visual-reference/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      .then((r) => r.data);
+  },
 };
 
 // ─── Artifacts API ────────────────────────────────────────────────────────────

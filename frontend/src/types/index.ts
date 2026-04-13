@@ -31,6 +31,15 @@ export type AgentStep =
 
 // ─── Project & Run Models ──────────────────────────────────────────────────────
 
+export interface VisualReference {
+  type: 'url' | 'upload';
+  url?: string;
+  file_name?: string;
+  s3_key?: string;
+  description?: string;
+  preview_url?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -38,6 +47,7 @@ export interface Project {
   requirements: string;
   target_language: string;
   target_framework?: string;
+  visual_references?: VisualReference[];
   status: ProjectStatus;
   created_at: string;
   updated_at: string;
@@ -49,6 +59,7 @@ export interface ProjectCreate {
   requirements: string;
   target_language: string;
   target_framework?: string;
+  visual_references?: VisualReference[];
 }
 
 export interface RunEvent {

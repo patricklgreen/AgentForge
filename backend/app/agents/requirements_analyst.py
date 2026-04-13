@@ -224,6 +224,7 @@ class RequirementsAnalystAgent(BaseAgent):
         language = state["target_language"]
         framework = state.get("target_framework") or ""
         requirements = state["requirements"]
+        visual_references = state.get("visual_references", [])
 
         # Resolve language profile
         profile = get_profile(language, framework)
@@ -248,6 +249,7 @@ class RequirementsAnalystAgent(BaseAgent):
             framework=framework,
             profile=profile,
             feedback_context=feedback_context,
+            visual_references=visual_references,
         )
 
         self._log_step("Invoking LLM...")
@@ -324,6 +326,7 @@ class RequirementsAnalystAgent(BaseAgent):
         framework:        str,
         profile:          Optional[LanguageProfile],
         feedback_context: str,
+        visual_references: list[dict],
     ) -> str:
         sections: list[str] = []
 
@@ -346,6 +349,30 @@ class RequirementsAnalystAgent(BaseAgent):
             f"**Business Requirements:**\n{'─' * 60}\n"
             f"{requirements.strip()}\n{'─' * 60}"
         )
+
+        # Add visual references section if provided
+        if visual_references:
+            visual_section = "**Visual References:**\n"
+            visual_section += "The following visual references should guide the UI design and user experience:\n\n"
+            
+            for i, ref in enumerate(visual_references, 1):
+                visual_section += f"{i}. "
+                if ref.get('type') == 'url':
+                    visual_section += f"External Reference: {ref.get('url')}\n"
+                elif ref.get('type') == 'upload':
+                    visual_section += f"Uploaded Image: {ref.get('file_name')}\n"
+                
+                if ref.get('description'):
+                    visual_section += f"   Description: {ref.get('description')}\n"
+                visual_section += "\n"
+            
+            visual_section += "Please incorporate these visual references when defining:\n"
+            visual_section += "- UI/UX requirements and user interface specifications\n"
+            visual_section += "- Frontend component requirements\n"
+            visual_section += "- User workflow and interaction patterns\n"
+            visual_section += "- Visual design and branding elements\n\n"
+            
+            sections.append(visual_section)
 
         if feedback_context:
             sections.append(feedback_context)

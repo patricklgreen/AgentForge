@@ -68,6 +68,9 @@ class Project(Base):
     target_framework: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True
     )
+    visual_references: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True, comment="URLs and uploaded images for visual design references"
+    )
     status: Mapped[ProjectStatus] = mapped_column(
         Enum("pending", "running", "waiting_review", "completed", "failed", "cancelled", name="projectstatus", native_enum=False),
         default=ProjectStatus.PENDING,

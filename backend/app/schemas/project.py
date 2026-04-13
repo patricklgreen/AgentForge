@@ -1,10 +1,18 @@
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 from app.models.project import AgentStep, ProjectStatus, RunStatus
+
+
+class VisualReference(BaseModel):
+    type: str = Field(..., description="'url' or 'upload'")
+    url: Optional[HttpUrl] = Field(None, description="URL to external image/mockup")
+    file_name: Optional[str] = Field(None, description="Name of uploaded file")
+    s3_key: Optional[str] = Field(None, description="S3 key for uploaded file")
+    description: Optional[str] = Field(None, description="Description of what this reference shows")
 
 
 class ProjectCreate(BaseModel):
@@ -16,6 +24,9 @@ class ProjectCreate(BaseModel):
     target_language: str = Field(..., description="e.g., Python, TypeScript, Java")
     target_framework: Optional[str] = Field(
         None, description="e.g., FastAPI, NestJS, Spring Boot"
+    )
+    visual_references: Optional[List[VisualReference]] = Field(
+        default_factory=list, description="Visual references (mockups, designs, screenshots)"
     )
 
 
@@ -31,6 +42,7 @@ class ProjectResponse(BaseModel):
     requirements: str
     target_language: str
     target_framework: Optional[str]
+    visual_references: Optional[dict]
     status: ProjectStatus
     created_at: datetime
     updated_at: datetime

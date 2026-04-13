@@ -47,6 +47,7 @@ class ProjectState(TypedDict):
     requirements:             str
     target_language:          str
     target_framework:         Optional[str]
+    visual_references:        Optional[list]
     specification:            Optional[dict]
     architecture:             Optional[dict]
     code_files:               list[dict]
@@ -642,6 +643,7 @@ class AgentOrchestrator:
         requirements:     str,
         target_language:  str,
         target_framework: Optional[str] = None,
+        visual_references: Optional[list] = None,
     ) -> dict:
         """Start a new pipeline run. Returns status dict."""
         if not self._graph:
@@ -666,6 +668,7 @@ class AgentOrchestrator:
             "requirements":      requirements,
             "target_language":   target_language,
             "target_framework":  target_framework,
+            "visual_references": visual_references or [],
             "specification":     None,
             "architecture":      None,
             "code_files":        [],

@@ -3,7 +3,8 @@ import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Wand2, AlertCircle } from "lucide-react";
 import { projectsApi } from "../api/client";
-import type { ProjectCreate } from "../types";
+import type { ProjectCreate, VisualReference } from "../types/index";
+import VisualReferences from "../components/VisualReferences";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,7 @@ export function NewProject() {
     requirements:     "",
     target_language:  "Python",
     target_framework: "FastAPI",
+    visual_references: [],
   });
 
   const mutation = useMutation({
@@ -286,6 +288,12 @@ export function NewProject() {
               )}
             </div>
           </div>
+
+          {/* Visual References */}
+          <VisualReferences
+            references={form.visual_references || []}
+            onChange={(references) => setForm(p => ({ ...p, visual_references: references }))}
+          />
 
           {/* Pipeline Info */}
           <div className="bg-indigo-950/40 border border-indigo-900/50 rounded-xl p-5">
