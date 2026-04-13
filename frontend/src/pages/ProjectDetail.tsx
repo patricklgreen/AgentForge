@@ -30,6 +30,7 @@ import { projectsApi, artifactsApi, RunWebSocket, tokenService } from "../api/cl
 import { AgentTimeline } from "../components/AgentTimeline";
 import { HumanReviewModal } from "../components/HumanReviewModal";
 import { CodeViewer } from "../components/CodeViewer";
+import CostAnalytics from "../components/CostAnalytics";
 import type {
   WsMessage,
   InterruptPayload,
@@ -995,7 +996,14 @@ export function ProjectDetail() {
                 events={latestRun?.events ?? []}
                 currentStep={latestRun?.current_step}
                 runStatus={latestRun?.status}
+                projectId={projectId}
+                runId={latestRun?.id || ''}
               />
+
+              {/* Cost Analytics */}
+              <div className="mt-8">
+                <CostAnalytics projectId={projectId} />
+              </div>
 
               {!latestRun && !runsLoading && (
                 <div className="text-center py-16">

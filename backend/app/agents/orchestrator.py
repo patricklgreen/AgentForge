@@ -19,6 +19,7 @@ from app.agents.documentation_agent import DocumentationAgent
 from app.agents.package_validation_agent import PackageValidationAgent
 from app.services.s3 import s3_service
 from app.services.websocket_manager import ws_manager
+from app.services.cost_tracker import CostTracker
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ class ProjectState(TypedDict):
     build_validation_results: list[dict]
     quality_violations:       list[str]
     zip_url:                  Optional[str]
+    cost_summary:             Optional[dict]
 
 
 # ─── Orchestrator ─────────────────────────────────────────────────────────────
@@ -126,6 +128,17 @@ class AgentOrchestrator:
         
         self._graph = self._build_graph()
         logger.info("AgentOrchestrator initialised")
+
+    def _set_cost_tracker_for_agents(self, cost_tracker: CostTracker) -> None:
+        """Set the cost tracker for all agents."""
+        agents = [
+            self.requirements_agent, self.architect_agent, self.code_generator,
+            self.validator_agent, self.package_validator, self.test_writer,
+            self.build_validator, self.code_reviewer, self.devops_agent,
+            self.documentation_agent
+        ]
+        for agent in agents:
+            agent.set_cost_tracker(cost_tracker)
 
     # ─── Graph ────────────────────────────────────────────────────────────────
 
@@ -642,6 +655,11 @@ class AgentOrchestrator:
         graph_with_checkpointer = self._graph.compile(checkpointer=checkpointer)
 
         config = {"configurable": {"thread_id": run_id}}
+        
+        # Initialize cost tracking for this run
+        cost_tracker = CostTracker(run_id=run_id)
+        self._set_cost_tracker_for_agents(cost_tracker)
+        
         initial: ProjectState = {
             "project_id":        project_id,
             "run_id":            run_id,
@@ -659,8 +677,10 @@ class AgentOrchestrator:
             "current_step":      "starting",
             "error":             None,
             "validation_results": [],
+            "build_validation_results": [],
             "quality_violations": [],
             "zip_url":           None,
+            "cost_summary":      None,
         }
         try:
             # Add timeout to prevent infinite hanging
@@ -685,8 +705,27 @@ class AgentOrchestrator:
                 except Exception as state_error:
                     logger.error(f"Could not retrieve state after timeout: {state_error}")
                 raise Exception(error_msg)
+
+            result = await self._get_run_result(config, graph_with_checkpointer)
             
-            return await self._get_run_result(config, graph_with_checkpointer)
+            # Add cost summary to the final result if cost tracker is available
+            if cost_tracker:
+                cost_summary = cost_tracker.summary()
+                logger.info(f"Run {run_id} cost summary: ${cost_summary['total_cost_usd']:.4f}")
+                
+                # Try to update the state with cost summary
+                try:
+                    current_state = await graph_with_checkpointer.aget_state(config)
+                    if current_state and current_state.values:
+                        updated_state = {**current_state.values, "cost_summary": cost_summary}
+                        await graph_with_checkpointer.aupdate_state(config, updated_state)
+                except Exception as exc:
+                    logger.warning(f"Failed to update state with cost summary: {exc}")
+                
+                # Add cost summary to result
+                result["cost_summary"] = cost_summary
+            
+            return result
         except Exception as exc:
             logger.error(f"Run {run_id} failed: {exc}", exc_info=True)
             raise

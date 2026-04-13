@@ -6,6 +6,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from app.services.bedrock import BedrockService, bedrock_service
 from app.services.directive_service import directive_service
+from app.services.cost_tracker import CostTracker
 
 
 class BaseAgent(ABC):
@@ -21,6 +22,15 @@ class BaseAgent(ABC):
         self.description = description
         self.bedrock = bedrock or bedrock_service
         self.logger = logging.getLogger(f"agents.{name}")
+        self._cost_tracker: Optional[CostTracker] = None
+
+    def set_cost_tracker(self, cost_tracker: CostTracker) -> None:
+        """Set the cost tracker for this agent."""
+        self._cost_tracker = cost_tracker
+
+    def get_cost_tracker(self) -> Optional[CostTracker]:
+        """Get the current cost tracker."""
+        return self._cost_tracker
 
     def _get_directive_context(self, state: dict[str, Any]) -> str:
         """
@@ -76,29 +86,23 @@ class BaseAgent(ABC):
         
         for attempt in range(max_retries + 1):
             try:
-                llm = (
-                    self.bedrock.get_fast_llm()
-                    if use_fast_model
-                    else self.bedrock.get_llm()
+                # Use the updated bedrock service that returns usage info
+                content, usage_info = await self.bedrock.invoke(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    use_fast_model=use_fast_model,
                 )
-                messages: list[BaseMessage] = [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_message),
-                ]
                 
-                # Add timeout to prevent individual LLM calls from hanging indefinitely
-                import asyncio
-                timeout_minutes = 10  # 10 minutes per LLM call should be more than enough
-                
-                try:
-                    async with asyncio.timeout(timeout_minutes * 60):
-                        response = await llm.ainvoke(messages)
-                except asyncio.TimeoutError:
-                    error_msg = f"LLM call timed out after {timeout_minutes} minutes"
-                    self.logger.error(error_msg)
-                    raise Exception(error_msg)
+                # Record cost if cost tracker is available
+                if self._cost_tracker:
+                    self._cost_tracker.record(
+                        agent=self.name,
+                        model_id=usage_info['model_id'],
+                        input_tokens=usage_info['input_tokens'],
+                        output_tokens=usage_info['output_tokens'],
+                    )
                     
-                return response.content  # type: ignore[return-value]
+                return content
                 
             except Exception as exc:
                 error_str = str(exc)
@@ -135,11 +139,22 @@ class BaseAgent(ABC):
             directive_context = self._get_directive_context(state)
             system_prompt = f"{directive_context}\n\n{system_prompt}"
         
-        return await self.bedrock.invoke_with_json_output(
+        result, usage_info = await self.bedrock.invoke_with_json_output(
             system_prompt=system_prompt,
             user_message=user_message,
             use_fast_model=use_fast_model,
         )
+        
+        # Record cost if cost tracker is available
+        if self._cost_tracker:
+            self._cost_tracker.record(
+                agent=self.name,
+                model_id=usage_info['model_id'],
+                input_tokens=usage_info['input_tokens'],
+                output_tokens=usage_info['output_tokens'],
+            )
+        
+        return result
 
     def _log_step(self, message: str, data: Any = None) -> None:
         self.logger.info(

@@ -100,8 +100,8 @@ class BedrockService:
         temperature: float = 0.1,
         max_tokens: int = 64000,  # Increased for Claude 4
         use_fast_model: bool = False,
-    ) -> str:
-        """Invoke the LLM and return the raw string response."""
+    ) -> tuple[str, dict]:
+        """Invoke the LLM and return the response with usage statistics."""
         llm = (
             self.get_fast_llm()
             if use_fast_model
@@ -116,7 +116,15 @@ class BedrockService:
             HumanMessage(content=user_message),
         ]
         response = await llm.ainvoke(messages)
-        return response.content  # type: ignore[return-value]
+        
+        # Extract usage information from the response
+        usage_info = {
+            'input_tokens': getattr(response, 'usage_metadata', {}).get('input_tokens', 0),
+            'output_tokens': getattr(response, 'usage_metadata', {}).get('output_tokens', 0),
+            'model_id': model_id or (settings.bedrock_fast_model_id if use_fast_model else settings.bedrock_model_id)
+        }
+        
+        return response.content, usage_info  # type: ignore[return-value]
 
     async def invoke_with_json_output(
         self,
@@ -124,9 +132,9 @@ class BedrockService:
         user_message: str,
         model_id: Optional[str] = None,
         use_fast_model: bool = False,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], dict]:
         """
-        Invoke the LLM and parse its response as JSON.
+        Invoke the LLM and parse its response as JSON, returning usage info.
 
         Strips markdown code fences if the model wraps the response in them,
         which happens despite explicit instructions in some cases.
@@ -135,13 +143,13 @@ class BedrockService:
             "\n\nCRITICAL: Respond with ONLY a valid JSON object. "
             "No markdown fences, no explanation, no text before or after the JSON."
         )
-        raw = await self.invoke(
+        raw, usage_info = await self.invoke(
             system_prompt=system_prompt + json_instruction,
             user_message=user_message,
             model_id=model_id,
             use_fast_model=use_fast_model,
         )
-        return self._parse_json_response(raw)
+        return self._parse_json_response(raw), usage_info
 
     async def invoke_structured(
         self,
@@ -163,12 +171,12 @@ class BedrockService:
 
         for attempt in range(max_retries):
             try:
-                raw = await self.invoke_with_json_output(
+                raw_dict, usage_info = await self.invoke_with_json_output(
                     system_prompt=system_prompt,
                     user_message=user_message,
                     use_fast_model=use_fast_model,
                 )
-                return response_model.model_validate(raw)
+                return response_model.model_validate(raw_dict)
             except (ValidationError, Exception) as exc:
                 last_error = exc
                 if attempt < max_retries - 1:

@@ -580,6 +580,128 @@ async def _resume_agents(
             logger.error(f"❌ Marked run {run_db_id} as failed due to resume error")
 
 
+@router.get("/{project_id}/runs/{run_id}/cost")
+async def get_run_cost_summary(
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get cost summary for a specific run."""
+    # Verify project access
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get the run and its state
+    run_query = select(ProjectRun).where(ProjectRun.id == run_id, ProjectRun.project_id == project_id)
+    result = await db.execute(run_query)
+    run = result.scalar_one_or_none()
+
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Try to get cost summary from orchestrator state if available
+    try:
+        # Get the run result which includes cost summary
+        orchestrator = get_orchestrator()
+        config = {"configurable": {"thread_id": run.thread_id}}
+        run_result = await orchestrator._get_run_result(config)
+        
+        if run_result.get("cost_summary"):
+            return run_result["cost_summary"]
+    except Exception as exc:
+        logger.warning(f"Failed to get cost summary from orchestrator: {exc}")
+
+    # Return empty cost summary if not available
+    return {
+        "run_id": str(run_id),
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "total_cost_usd": 0.0,
+        "call_count": 0,
+        "calls_by_agent": {},
+        "cost_by_agent": {},
+        "note": "Cost tracking not available for this run"
+    }
+
+
+@router.get("/{project_id}/cost-analytics")
+async def get_project_cost_analytics(
+    project_id: uuid.UUID,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get cost analytics for all runs in a project."""
+    # Verify project access
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get all runs for the project
+    runs_query = (
+        select(ProjectRun)
+        .where(ProjectRun.project_id == project_id)
+        .order_by(ProjectRun.created_at.desc())
+        .limit(50)  # Limit to recent runs
+    )
+    result = await db.execute(runs_query)
+    runs = result.scalars().all()
+
+    # Aggregate cost data across runs
+    total_cost = 0.0
+    total_tokens = 0
+    run_costs = []
+    agent_costs = {}
+
+    orchestrator = get_orchestrator()
+    
+    for run in runs:
+        try:
+            config = {"configurable": {"thread_id": run.thread_id}}
+            run_result = await orchestrator._get_run_result(config)
+            cost_summary = run_result.get("cost_summary")
+            
+            if cost_summary:
+                run_cost = cost_summary.get("total_cost_usd", 0.0)
+                run_tokens = cost_summary.get("total_tokens", 0)
+                
+                total_cost += run_cost
+                total_tokens += run_tokens
+                
+                run_costs.append({
+                    "run_id": str(run.id),
+                    "created_at": run.created_at.isoformat(),
+                    "status": run.status.value,
+                    "cost_usd": run_cost,
+                    "tokens": run_tokens
+                })
+                
+                # Aggregate agent costs
+                for agent, cost in cost_summary.get("cost_by_agent", {}).items():
+                    agent_costs[agent] = agent_costs.get(agent, 0.0) + cost
+                    
+        except Exception as exc:
+            logger.warning(f"Failed to get cost for run {run.id}: {exc}")
+
+    return {
+        "project_id": str(project_id),
+        "project_name": project.name,
+        "total_runs": len(runs),
+        "total_cost_usd": round(total_cost, 6),
+        "total_tokens": total_tokens,
+        "average_cost_per_run": round(total_cost / len(runs), 6) if runs else 0.0,
+        "cost_by_agent": {k: round(v, 6) for k, v in agent_costs.items()},
+        "recent_runs": run_costs[:10],  # Last 10 runs
+        "cost_trend": run_costs  # All runs for trend analysis
+    }
+
+
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(
     project_id: uuid.UUID,

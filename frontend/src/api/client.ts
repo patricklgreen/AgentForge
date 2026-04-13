@@ -218,6 +218,18 @@ export const projectsApi = {
     api
       .delete(`/projects/${projectId}`)
       .then(() => undefined),
+
+  /** Get cost summary for a specific run */
+  getRunCost: (projectId: string, runId: string): Promise<any> =>
+    api
+      .get(`/projects/${projectId}/runs/${runId}/cost`)
+      .then((r) => r.data),
+
+  /** Get cost analytics for a project */
+  getCostAnalytics: (projectId: string): Promise<any> =>
+    api
+      .get(`/projects/${projectId}/cost-analytics`)
+      .then((r) => r.data),
 };
 
 // ─── Artifacts API ────────────────────────────────────────────────────────────
