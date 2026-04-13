@@ -292,6 +292,71 @@ export function HumanReviewModal({
             </div>
           )}
 
+        {/* Package Validation Results */}
+        {payload.data.package_validation && (
+          <div className="bg-gray-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="h-4 w-4 text-orange-400" />
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Package Validation
+              </span>
+              <div className="ml-auto">
+                <span
+                  className={clsx(
+                    "text-xs px-2 py-1 rounded font-medium",
+                    payload.data.package_validation.validation_passed
+                      ? "bg-green-900/50 text-green-300"
+                      : "bg-red-900/50 text-red-300"
+                  )}
+                >
+                  {payload.data.package_validation.validation_passed ? "PASSED" : "ISSUES FOUND"}
+                </span>
+              </div>
+            </div>
+            
+            {payload.data.package_validation.validation_passed ? (
+              <p className="text-sm text-green-400">
+                ✅ All packages are current and compatible
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-red-400 mb-3">
+                  {payload.data.package_validation.critical_issues_count} critical issues found that may prevent the project from building or running properly:
+                </p>
+                
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {payload.data.package_validation.critical_issues?.slice(0, 10).map((issue, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-red-900/20 border border-red-900/40 rounded-lg p-2.5"
+                    >
+                      <p className="text-xs text-red-300 font-mono">
+                        Issue {idx + 1}:
+                      </p>
+                      <p className="text-xs text-gray-300 mt-1">
+                        {typeof issue === 'string' ? issue : JSON.stringify(issue)}
+                      </p>
+                    </div>
+                  ))}
+                  {(payload.data.package_validation.critical_issues?.length || 0) > 10 && (
+                    <p className="text-xs text-gray-500 px-2.5">
+                      +{(payload.data.package_validation.critical_issues?.length || 0) - 10} more issues...
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 p-3 bg-blue-900/20 border border-blue-900/40 rounded-lg">
+                  <p className="text-xs text-blue-300 font-medium mb-1">💡 Fix Recommendations:</p>
+                  <p className="text-xs text-gray-400">
+                    The validation results contain updated configuration files with current package versions. 
+                    Consider applying these fixes before proceeding to ensure your project builds successfully.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Generated code files viewer */}
         {codeFiles.length > 0 && (
           <div>

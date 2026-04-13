@@ -323,6 +323,7 @@ class AgentOrchestrator:
         
         critical_issues = result.get("critical_issues", [])
         validation_passed = result.get("validation_passed", False)
+        validation_results = result.get("validation_results", [])
         
         status_msg = "Package validation complete"
         if validation_passed:
@@ -330,10 +331,27 @@ class AgentOrchestrator:
         else:
             status_msg += f" — {len(critical_issues)} critical issues found ⚠️"
             
+        # Include detailed issues in the notification data for Live Logs
+        notification_data = {
+            "critical_issues_count": len(critical_issues), 
+            "validation_passed": validation_passed,
+            "critical_issues": critical_issues[:5],  # Show first 5 issues in logs
+            "total_files_checked": len(validation_results)
+        }
+        
+        # Add summary of issues for more informative logging
+        if critical_issues:
+            issue_summary = []
+            for issue in critical_issues[:3]:  # Show first 3 in the log message
+                if isinstance(issue, str):
+                    issue_summary.append(issue[:50] + "..." if len(issue) > 50 else issue)
+            if issue_summary:
+                status_msg += f". Issues: {'; '.join(issue_summary)}"
+                if len(critical_issues) > 3:
+                    status_msg += f" (and {len(critical_issues) - 3} more)"
+            
         await self._notify(state, "agent_complete", "PackageValidator", 
-                           "package_validation", status_msg,
-                           {"critical_issues_count": len(critical_issues), 
-                            "validation_passed": validation_passed})
+                           "package_validation", status_msg, notification_data)
         return {**result, "current_step": "package_validation"}
 
     async def _write_tests_node(self, state: ProjectState) -> ProjectState:
@@ -388,18 +406,36 @@ class AgentOrchestrator:
         test_files         = state.get("test_files", [])
         review             = state.get("review_comments") or {}
         validation_results = state.get("validation_results", [])
+        
+        # Package validation results
+        package_validation_results = state.get("validation_results", [])  # From PackageValidationAgent
+        critical_issues = state.get("critical_issues", [])
+        validation_passed = state.get("validation_passed", True)
+        
         auto_fixed         = [r["path"] for r in validation_results if r.get("was_fixed")]
         remaining          = [r for r in validation_results
                               if r.get("has_errors") and not r.get("was_fixed")]
+        
+        # Build description with package validation info
+        description_parts = [
+            f"Review {len(code_files)} source files and {len(test_files)} test files. "
+            f"Quality score: {review.get('overall_score', 0)}/100."
+        ]
+        
+        if auto_fixed:
+            description_parts.append(f" {len(auto_fixed)} file(s) auto-corrected by validator.")
+        
+        if not validation_passed and critical_issues:
+            description_parts.append(f" Package validation found {len(critical_issues)} critical issues requiring attention.")
+        elif validation_passed:
+            description_parts.append(" All packages validated successfully.")
+        
+        description_parts.append(" Approve to proceed, Modify to regenerate, or Reject.")
+        
         payload = {
             "step":        "code_review",
-            "title":       "Review Generated Code & Tests",
-            "description": (
-                f"Review {len(code_files)} source files and {len(test_files)} test files. "
-                f"Quality score: {review.get('overall_score', 0)}/100."
-                + (f" {len(auto_fixed)} file(s) auto-corrected by validator." if auto_fixed else "")
-                + " Approve to proceed, Modify to regenerate, or Reject."
-            ),
+            "title":       "Review Generated Code, Tests & Package Configuration",
+            "description": "".join(description_parts),
             "data": {
                 "code_files":        code_files,
                 "test_files":        test_files,
@@ -408,6 +444,12 @@ class AgentOrchestrator:
                     "auto_fixed_count": len(auto_fixed),
                     "auto_fixed_files": auto_fixed,
                     "remaining_issues": remaining,
+                },
+                "package_validation": {
+                    "validation_passed": validation_passed,
+                    "critical_issues": critical_issues,
+                    "validation_results": package_validation_results,
+                    "critical_issues_count": len(critical_issues),
                 },
             },
         }
@@ -753,6 +795,10 @@ class AgentOrchestrator:
         
         config = {"configurable": {"thread_id": run_id}}
         
+        # Initialize cost tracking for the resumed run
+        cost_tracker = CostTracker(run_id=run_id)
+        self._set_cost_tracker_for_agents(cost_tracker)
+        
         try:
             # First check if there's actually an active interrupt
             state = await graph_with_checkpointer.aget_state(config)
@@ -790,6 +836,20 @@ class AgentOrchestrator:
             logger.error(f"Resume {run_id} failed: {exc}", exc_info=True)
             raise
         finally:
+            # Add cost summary to the final result if cost tracker is available
+            if cost_tracker:
+                cost_summary = cost_tracker.summary()
+                logger.info(f"Resumed run {run_id} cost summary: ${cost_summary['total_cost_usd']:.4f}")
+                
+                # Try to update the state with cost summary
+                try:
+                    current_state = await graph_with_checkpointer.aget_state(config)
+                    if current_state and current_state.values:
+                        updated_state = {**current_state.values, "cost_summary": cost_summary}
+                        await graph_with_checkpointer.aupdate_state(config, updated_state)
+                except Exception as exc:
+                    logger.warning(f"Failed to update state with cost summary: {exc}")
+            
             try:
                 await checkpointer_cm.__aexit__(None, None, None)
             except:
