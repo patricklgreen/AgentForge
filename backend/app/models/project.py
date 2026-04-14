@@ -4,6 +4,7 @@ from enum import Enum as PyEnum
 from typing import Optional
 
 from sqlalchemy import (
+    ARRAY,
     JSON,
     Boolean,
     DateTime,
@@ -122,6 +123,9 @@ class ProjectRun(Base):
         JSON, nullable=True
     )
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    approved_steps: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String), nullable=True, default=lambda: []
+    )
     started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

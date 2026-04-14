@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db, AsyncSessionLocal
 from app.models.project import Project, ProjectRun, RunEvent, RunStatus, ProjectStatus, Artifact
-from app.models.auth import UserRole
+from app.models.auth import UserRole, User
 from app.schemas.project import (
     ProjectCreate,
     ProjectResponse,
@@ -22,8 +22,9 @@ from app.schemas.project import (
     RunStateResponse,
 )
 from app.agents.orchestrator import AgentOrchestrator
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from app.config import get_settings
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentUser, get_current_user
 from app.services.s3 import s3_service
 
 logger = logging.getLogger(__name__)
@@ -327,6 +328,19 @@ async def submit_human_feedback(
     run.status            = RunStatus.RUNNING
     run.interrupt_payload = None
 
+    # Check if this step was already approved (prevent infinite loops)
+    if run.approved_steps and run.current_step in run.approved_steps:
+        logger.warning(f"🛡️ Step '{run.current_step}' already approved - preventing duplicate processing")
+        
+        # Reset status back to waiting if it's a duplicate
+        run.status = RunStatus.WAITING_REVIEW
+        await db.commit()
+        
+        return FeedbackResponse(
+            status="already_processed", 
+            action=feedback.action,
+        )
+
     # Also update project status to running when resuming
     project = await db.get(Project, project_id)
     if project:
@@ -411,6 +425,126 @@ async def cancel_run(
     await db.commit()
 
     return CancelResponse(status="cancelled", message="Run cancelled successfully")
+
+
+@router.put("/{project_id}/runs/{run_id}/requirements")
+async def update_requirements(
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    requirements: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Update the requirements specification for an active run."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    run = await db.get(ProjectRun, run_id)
+    if not run or run.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Update the LangGraph state with the new requirements
+    orchestrator = AgentOrchestrator()
+    try:
+        config = {"configurable": {"thread_id": run.thread_id}}
+        
+        # Get current state
+        checkpointer_cm = AsyncPostgresSaver.from_conn_string(orchestrator.clean_conn)
+        checkpointer = await checkpointer_cm.__aenter__()
+        graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer) if orchestrator._graph else None
+        
+        if not graph_with_checkpointer:
+            await orchestrator.initialize()
+            graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer)
+        
+        current_state = await graph_with_checkpointer.aget_state(config)
+        if not current_state or not current_state.values:
+            raise HTTPException(status_code=400, detail="No active state found for this run")
+        
+        # Update the specification in the state
+        updated_state = {
+            **current_state.values,
+            "specification": requirements
+        }
+        
+        await graph_with_checkpointer.aupdate_state(config, updated_state)
+        
+        # Cleanup
+        await checkpointer_cm.__aexit__(None, None, None)
+        
+        return {"status": "updated", "message": "Requirements updated successfully"}
+        
+    except Exception as exc:
+        logger.error(f"Failed to update requirements for run {run_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update requirements: {str(exc)}")
+
+
+@router.get("/{project_id}/requirements")
+async def get_requirements(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Get the current requirements specification for a project."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get the latest run for this project
+    result = await db.execute(
+        select(ProjectRun)
+        .where(ProjectRun.project_id == project_id)
+        .order_by(desc(ProjectRun.created_at))
+        .limit(1)
+    )
+    latest_run = result.scalar_one_or_none()
+    
+    if not latest_run:
+        raise HTTPException(status_code=404, detail="No runs found for this project")
+
+    # Get the requirements from the LangGraph state
+    orchestrator = AgentOrchestrator()
+    try:
+        config = {"configurable": {"thread_id": latest_run.thread_id}}
+        
+        # Get current state
+        checkpointer_cm = AsyncPostgresSaver.from_conn_string(orchestrator.clean_conn)
+        checkpointer = await checkpointer_cm.__aenter__()
+        graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer) if orchestrator._graph else None
+        
+        if not graph_with_checkpointer:
+            await orchestrator.initialize()
+            graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer)
+        
+        current_state = await graph_with_checkpointer.aget_state(config)
+        if not current_state or not current_state.values:
+            raise HTTPException(status_code=400, detail="No active state found for this project")
+        
+        specification = current_state.values.get("specification")
+        if not specification:
+            raise HTTPException(status_code=404, detail="No requirements specification found")
+        
+        # Cleanup
+        await checkpointer_cm.__aexit__(None, None, None)
+        
+        return {
+            "project_name": project.name,
+            "project_id": str(project_id),
+            "run_id": str(latest_run.id),
+            "specification": specification,
+            "generated_at": latest_run.created_at.isoformat(),
+        }
+        
+    except Exception as exc:
+        logger.error(f"Failed to get requirements for project {project_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get requirements: {str(exc)}")
 
 
 # ─── Background task helpers ──────────────────────────────────────────────────
@@ -552,6 +686,17 @@ async def _resume_agents(
             if run:
                 logger.info(f"📝 Applying result to run {run_db_id}: status={result.get('status')}")
                 _apply_result_to_run(run, project, result)
+                
+                # Mark step as approved if feedback was approve and run succeeded
+                if feedback.get("action") == "approve" and result.get("status") in ["completed", "interrupted"]:
+                    step = feedback.get("step")
+                    if step:
+                        approved_steps = run.approved_steps or []
+                        if step not in approved_steps:
+                            approved_steps.append(step)
+                            run.approved_steps = approved_steps
+                            logger.info(f"✅ Marked step '{step}' as approved")
+                
                 await db.commit()
                 logger.info(f"✅ Applied result to run {run_db_id} successfully")
 

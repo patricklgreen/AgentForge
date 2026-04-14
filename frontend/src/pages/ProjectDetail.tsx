@@ -22,6 +22,7 @@ import {
   ExternalLink,
   StopCircle,
   Trash2,
+  Download,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { clsx } from "clsx";
@@ -271,6 +272,11 @@ export function ProjectDetail() {
                    || project?.status === "failed"
                    || project?.status === "cancelled";
 
+  // Check if requirements analysis has been completed (any step after requirements_analysis)
+  const hasRequirementsCompleted = latestRun && latestRun.current_step && 
+    latestRun.current_step !== "requirements_analysis" &&
+    latestRun.current_step !== "pending";
+
   // ─── WebSocket ──────────────────────────────────────────────────────────────
 
   const addLogEntry = useCallback((msg: WsMessage) => {
@@ -474,6 +480,40 @@ export function ProjectDetail() {
     onError: (error) => {
       console.error("Failed to delete project:", error);
       setShowDeleteConfirm(false);
+    },
+  });
+
+  // ─── Download Requirements ────────────────────────────────────────────────
+
+  const downloadRequirements = async () => {
+    if (!projectId) return;
+    
+    try {
+      const data = await projectsApi.getRequirements(projectId);
+      
+      // Create downloadable file
+      const content = JSON.stringify(data.specification, null, 2);
+      const blob = new Blob([content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      
+      // Trigger download
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${data.project_name}-requirements-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Failed to download requirements:", error);
+      // Could add toast notification here
+    }
+  };
+
+  const downloadRequirementsMutation = useMutation({
+    mutationFn: downloadRequirements,
+    onError: (error) => {
+      console.error("Download requirements failed:", error);
     },
   });
 
@@ -813,6 +853,22 @@ export function ProjectDetail() {
               >
                 <RefreshCw className="h-4 w-4" />
                 Re-run
+              </button>
+            )}
+
+            {/* Download Requirements - Available after requirements analysis step */}
+            {latestRun && hasRequirementsCompleted && (
+              <button
+                onClick={() => downloadRequirementsMutation.mutate()}
+                disabled={downloadRequirementsMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors"
+                title="Download requirements specification as JSON"
+              >
+                {downloadRequirementsMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Downloading...</>
+                ) : (
+                  <><Download className="h-4 w-4" /> Download Requirements</>
+                )}
               </button>
             )}
 
@@ -1228,6 +1284,8 @@ export function ProjectDetail() {
             }
           }}
           isLoading={feedbackMutation.isPending}
+          projectId={projectId}
+          runId={activeRunIdRef.current ?? latestRun?.id}
         />
       )}
 

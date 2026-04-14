@@ -8,16 +8,21 @@ import {
   ShieldCheck,
   Wrench,
   Loader2,
+  Download,
+  Save,
 } from "lucide-react";
 import { clsx } from "clsx";
 import type { InterruptPayload, HumanFeedback } from "../types";
 import { CodeViewer } from "./CodeViewer";
+import { projectsApi } from "../api/client";
 
 interface HumanReviewModalProps {
   payload:    InterruptPayload;
   onSubmit:   (feedback: HumanFeedback) => void;
   onClose:    () => void;
   isLoading?: boolean;
+  projectId?: string;
+  runId?:     string;
 }
 
 export function HumanReviewModal({
@@ -25,9 +30,14 @@ export function HumanReviewModal({
   onSubmit,
   onClose,
   isLoading = false,
+  projectId,
+  runId,
 }: HumanReviewModalProps) {
   const [action,   setAction]   = useState<"approve" | "reject" | "modify">("approve");
   const [feedback, setFeedback] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedSpec, setEditedSpec] = useState(payload.data.specification);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = () => {
     onSubmit({ action, feedback: feedback.trim() || undefined });
@@ -36,66 +46,197 @@ export function HumanReviewModal({
   const isFeedbackRequired = action !== "approve";
   const canSubmit = !isLoading && (!isFeedbackRequired || feedback.trim().length > 0);
 
+  // ─── Requirements Edit/Download Handlers ──────────────────────────────────────
+
+  const downloadRequirements = () => {
+    const spec = isEditing ? editedSpec : payload.data.specification;
+    if (!spec) return;
+
+    const content = JSON.stringify(spec, null, 2);
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `requirements-specification-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const saveRequirements = async () => {
+    if (!projectId || !runId || !editedSpec) return;
+
+    setIsSaving(true);
+    try {
+      await projectsApi.updateRequirements(projectId, runId, editedSpec);
+      // Update the payload data with the edited specification
+      payload.data.specification = editedSpec;
+      setIsEditing(false);
+    } catch (error) {
+      console.error("Failed to save requirements:", error);
+      // TODO: Add toast notification for error
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditedSpec(payload.data.specification);
+    setIsEditing(false);
+  };
+
   // ─── Content Renderers ────────────────────────────────────────────────────
 
   const renderSpecification = () => {
-    const spec = payload.data.specification;
+    const spec = isEditing ? editedSpec : payload.data.specification;
     if (!spec) return <EmptyState message="No specification data available." />;
 
     return (
       <div className="space-y-5">
-        <Section title="Project Summary">
-          <p className="text-sm text-gray-400 leading-relaxed">{spec.project_summary}</p>
-        </Section>
-
-        <Section title={`Functional Requirements (${spec.functional_requirements?.length ?? 0})`}>
-          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-            {spec.functional_requirements?.map((req) => (
-              <div key={req.id} className="bg-gray-800 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                  <span className="text-xs font-mono text-indigo-400">{req.id}</span>
-                  <span
-                    className={clsx(
-                      "text-xs px-1.5 py-0.5 rounded font-medium",
-                      req.priority === "must"   && "bg-red-900/50    text-red-300",
-                      req.priority === "should" && "bg-yellow-900/50 text-yellow-300",
-                      req.priority === "could"  && "bg-gray-700      text-gray-400"
-                    )}
+        {/* Action Bar */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-blue-400" />
+            <span className="text-sm font-semibold text-gray-300">Requirements Specification</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={downloadRequirements}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+              title="Download as JSON"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download
+            </button>
+            {payload.step === "requirements_analysis" && projectId && runId && (
+              <>
+                {!isEditing ? (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-300 bg-blue-900/20 hover:bg-blue-900/30 rounded-lg transition-colors"
                   >
-                    {req.priority}
-                  </span>
-                </div>
-                <p className="text-sm font-medium text-white">{req.title}</p>
-                <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                  {req.description}
-                </p>
-                {req.acceptance_criteria?.length > 0 && (
-                  <ul className="mt-2 space-y-0.5">
-                    {req.acceptance_criteria.slice(0, 3).map((c, i) => (
-                      <li key={i} className="text-xs text-gray-500 flex items-start gap-1.5">
-                        <CheckCircle className="h-3 w-3 text-green-600 flex-shrink-0 mt-0.5" />
-                        {c}
-                      </li>
-                    ))}
-                  </ul>
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={saveRequirements}
+                      disabled={isSaving}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-green-300 bg-green-900/20 hover:bg-green-900/30 disabled:opacity-50 rounded-lg transition-colors"
+                    >
+                      {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      Save
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      disabled={isSaving}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 )}
-              </div>
-            ))}
+              </>
+            )}
           </div>
-        </Section>
+        </div>
 
-        <Section title="Recommended Tech Stack">
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(spec.tech_stack ?? {})
-              .filter(([, v]) => v && typeof v === "string")
-              .map(([key, value]) => (
-                <div key={key} className="bg-gray-800 rounded-lg p-2">
-                  <p className="text-xs text-gray-500 capitalize">{key}</p>
-                  <p className="text-sm text-gray-200 font-medium truncate">{value}</p>
-                </div>
-              ))}
+        {isEditing ? (
+          // Edit Mode
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Project Summary</label>
+              <textarea
+                value={editedSpec.project_summary || ""}
+                onChange={(e) => setEditedSpec({ ...editedSpec, project_summary: e.target.value })}
+                className="w-full h-24 px-3 py-2 text-sm text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
+                placeholder="Enter project summary..."
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Functional Requirements ({editedSpec.functional_requirements?.length ?? 0})
+              </label>
+              <div className="bg-gray-800 rounded-lg p-3">
+                <textarea
+                  value={JSON.stringify(editedSpec.functional_requirements || [], null, 2)}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      setEditedSpec({ ...editedSpec, functional_requirements: parsed });
+                    } catch {
+                      // Invalid JSON, keep current state but allow typing
+                    }
+                  }}
+                  className="w-full h-64 px-3 py-2 text-xs text-gray-300 bg-gray-900 border border-gray-700 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono resize-none"
+                  placeholder="Enter functional requirements as JSON array..."
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Edit the JSON structure directly. Each requirement should have: id, title, description, priority, acceptance_criteria.
+                </p>
+              </div>
+            </div>
           </div>
-        </Section>
+        ) : (
+          // View Mode
+          <div className="space-y-5">
+            <Section title="Project Summary">
+              <p className="text-sm text-gray-400 leading-relaxed">{spec.project_summary}</p>
+            </Section>
+
+            <Section title={`Functional Requirements (${spec.functional_requirements?.length ?? 0})`}>
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {spec.functional_requirements?.map((req) => (
+                  <div key={req.id} className="bg-gray-800 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-xs font-mono text-indigo-400">{req.id}</span>
+                      <span
+                        className={clsx(
+                          "text-xs px-1.5 py-0.5 rounded font-medium",
+                          req.priority === "must"   && "bg-red-900/50    text-red-300",
+                          req.priority === "should" && "bg-yellow-900/50 text-yellow-300",
+                          req.priority === "could"  && "bg-gray-700      text-gray-400"
+                        )}
+                      >
+                        {req.priority}
+                      </span>
+                    </div>
+                    <p className="text-sm font-medium text-white">{req.title}</p>
+                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                      {req.description}
+                    </p>
+                    {req.acceptance_criteria?.length > 0 && (
+                      <ul className="mt-2 space-y-0.5">
+                        {req.acceptance_criteria.slice(0, 3).map((c, i) => (
+                          <li key={i} className="text-xs text-gray-500 flex items-start gap-1.5">
+                            <CheckCircle className="h-3 w-3 text-green-600 flex-shrink-0 mt-0.5" />
+                            {c}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Recommended Tech Stack">
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(spec.tech_stack ?? {})
+                  .filter(([, v]) => v && typeof v === "string")
+                  .map(([key, value]) => (
+                    <div key={key} className="bg-gray-800 rounded-lg p-2">
+                      <p className="text-xs text-gray-500 capitalize">{key}</p>
+                      <p className="text-sm text-gray-200 font-medium truncate">{value}</p>
+                    </div>
+                  ))}
+              </div>
+            </Section>
+          </div>
+        )}
       </div>
     );
   };

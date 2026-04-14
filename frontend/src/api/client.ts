@@ -201,6 +201,28 @@ export const projectsApi = {
       .post(`/projects/${projectId}/runs/${runId}/feedback`, feedback)
       .then((r) => r.data),
 
+  /** Update requirements specification for an active run */
+  updateRequirements: (
+    projectId: string,
+    runId: string,
+    requirements: Record<string, any>
+  ): Promise<{ status: string; message: string }> =>
+    api
+      .put(`/projects/${projectId}/runs/${runId}/requirements`, requirements)
+      .then((r) => r.data),
+
+  /** Get requirements specification for a project */
+  getRequirements: (projectId: string): Promise<{
+    project_name: string;
+    project_id: string;
+    run_id: string;
+    specification: Record<string, any>;
+    generated_at: string;
+  }> =>
+    api
+      .get(`/projects/${projectId}/requirements`)
+      .then((r) => r.data),
+
   /** Cancel a run that is paused at a human-review checkpoint */
   cancelRun: (projectId: string, runId: string): Promise<CancelResponse> =>
     api

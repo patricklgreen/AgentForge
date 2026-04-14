@@ -240,18 +240,23 @@ class AgentOrchestrator:
         return {**result, "current_step": "requirements_analysis"}
 
     async def _human_review_requirements_node(self, state: ProjectState) -> ProjectState:
-        # Check if we already have feedback for this step (resume case)
-        existing_feedback = state.get("human_feedback", [])
-        requirements_feedback = None
-        for fb in existing_feedback:
-            if fb.get("step") == "requirements_analysis":
-                requirements_feedback = fb
-                break
-        
-        # If we already have feedback, don't interrupt again - just return current state
-        if requirements_feedback:
-            logger.info(f"Resume: Using existing requirements feedback: {requirements_feedback.get('action', 'approve')}")
-            return {**state, "current_step": "requirements_analysis"}
+        # Get run_id and check if this step was already approved
+        run_id = state.get("run_id")
+        if run_id:
+            # Check database for already approved steps
+            from app.database import AsyncSessionLocal
+            from app.models.project import ProjectRun
+            from sqlalchemy import select
+            
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(ProjectRun).where(ProjectRun.thread_id == run_id)
+                )
+                run = result.scalar_one_or_none()
+                
+                if run and run.approved_steps and "requirements_analysis" in run.approved_steps:
+                    logger.info(f"🔄 Skipping requirements review - already approved in this session")
+                    return {**state, "current_step": "requirements_analysis"}
         
         # First time - setup interrupt
         spec = state.get("specification") or {}
@@ -267,7 +272,11 @@ class AgentOrchestrator:
         }
         await self._notify(state, "interrupt", "Orchestrator", "requirements_analysis",
                            "Human review required — requirements specification ready", payload)
+        
+        # This will interrupt execution and wait for resume
         human_response = interrupt(payload)
+        
+        # This code runs when resumed
         feedback = {
             "step":          "requirements_analysis",
             "action":        human_response.get("action", "approve"),
@@ -275,6 +284,22 @@ class AgentOrchestrator:
             "modifications": human_response.get("modifications", {}),
         }
         logger.info(f"Human review: requirements_analysis → {feedback['action']}")
+        
+        # Mark this step as approved in the database
+        if feedback["action"] == "approve" and run_id:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(ProjectRun).where(ProjectRun.thread_id == run_id)
+                )
+                run = result.scalar_one_or_none()
+                if run:
+                    approved_steps = run.approved_steps or []
+                    if "requirements_analysis" not in approved_steps:
+                        approved_steps.append("requirements_analysis")
+                        run.approved_steps = approved_steps
+                        await db.commit()
+                        logger.info(f"✅ Marked requirements_analysis as approved")
+        
         return {**state, "human_feedback": [*state.get("human_feedback", []), feedback],
                 "current_step": "requirements_analysis"}
 
@@ -290,20 +315,6 @@ class AgentOrchestrator:
         return {**result, "current_step": "architecture_design"}
 
     async def _human_review_architecture_node(self, state: ProjectState) -> ProjectState:
-        # Check if we already have feedback for this step (resume case)
-        existing_feedback = state.get("human_feedback", [])
-        architecture_feedback = None
-        for fb in existing_feedback:
-            if fb.get("step") == "architecture_design":
-                architecture_feedback = fb
-                break
-        
-        # If we already have feedback, don't interrupt again - just return current state
-        if architecture_feedback:
-            logger.info(f"Resume: Using existing architecture feedback: {architecture_feedback.get('action', 'approve')}")
-            return {**state, "current_step": "architecture_design"}
-        
-        # First time - setup interrupt
         arch = state.get("architecture") or {}
         payload = {
             "step":        "architecture_design",
@@ -892,17 +903,17 @@ class AgentOrchestrator:
             else:
                 logger.info(f"Resuming interrupted run {run_id} with feedback: {human_feedback}")
                 
-                # First, inject the human feedback into the current state
+                # First, inject the feedback into the state before resuming
                 current_state = state.values or {}
                 existing_feedback = current_state.get("human_feedback", [])
                 updated_feedback = [*existing_feedback, human_feedback]
                 updated_state = {**current_state, "human_feedback": updated_feedback}
                 
-                # Update the state with the feedback
+                # Update the state with the feedback before resuming
                 await graph_with_checkpointer.aupdate_state(config, updated_state)
-                logger.info(f"Updated state with feedback for step: {human_feedback.get('step', 'unknown')}")
+                logger.info(f"Injected feedback into state for step: {human_feedback.get('step', 'unknown')}")
                 
-                # Now resume execution - the human review node should see the feedback and not interrupt again
+                # Now resume execution - the human review node should see the feedback
                 async for event in graph_with_checkpointer.astream(
                     None, config=config, stream_mode="updates"
                 ):
