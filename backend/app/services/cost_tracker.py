@@ -65,7 +65,7 @@ class CostTracker:
         return cost
 
     def summary(self) -> dict:
-        return {
+        summary_data = {
             "run_id":              self.run_id,
             "total_input_tokens":  self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
@@ -77,3 +77,8 @@ class CostTracker:
                 k: round(v, 6) for k, v in self.cost_by_agent.items()
             },
         }
+        # Add debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔍 [COST_TRACKER_DEBUG] Cost summary for run {self.run_id}: {summary_data}")
+        return summary_data

@@ -206,16 +206,18 @@ export function ProjectDetail() {
    * Prevents showing the same interrupt multiple times.
    */
   const showInterruptPayload = useCallback((payload: InterruptPayload, source: string) => {
-    // Create a unique ID for this interrupt based on step and a hash of the payload
-    const payloadHash = JSON.stringify(payload.data).substring(0, 8);
-    const interruptId = `${payload.step}-${payloadHash}`;
-    
-    console.log(`🔔 Attempting to show interrupt from ${source}:`, { 
-      step: payload.step, 
-      interruptId,
-      alreadyShown: shownInterruptIds.has(interruptId),
-      currentModal: !!interruptPayload
-    });
+    try {
+      // Create a unique ID for this interrupt based on step and a hash of the payload
+      const dataString = JSON.stringify(payload.data || {});
+      const payloadHash = dataString.substring(0, 8);
+      const interruptId = `${payload.step}-${payloadHash}`;
+      
+      console.log(`🔔 Attempting to show interrupt from ${source}:`, { 
+        step: payload.step, 
+        interruptId,
+        alreadyShown: shownInterruptIds.has(interruptId),
+        currentModal: !!interruptPayload
+      });
 
     // Only show if we haven't shown this exact interrupt before
     if (!shownInterruptIds.has(interruptId)) {
@@ -224,7 +226,12 @@ export function ProjectDetail() {
     } else {
       console.log(`🔕 Skipping duplicate interrupt: ${interruptId}`);
     }
-  }, [shownInterruptIds, interruptPayload]);
+  } catch (error) {
+    console.error('Error in showInterruptPayload:', error, { payload, source });
+    // Fallback: still try to show the modal even if ID generation failed
+    setInterruptPayload(payload);
+  }
+}, [shownInterruptIds, interruptPayload]);
 
   // ─── Data Fetching ──────────────────────────────────────────────────────────
 
@@ -436,11 +443,21 @@ export function ProjectDetail() {
 
   const feedbackMutation = useMutation({
     mutationFn: (feedback: HumanFeedback) => {
+      console.log("🔄 [FEEDBACK_DEBUG] Starting feedback mutation...");
+      console.log("🔄 [FEEDBACK_DEBUG] Feedback data:", feedback);
+      
       const runId = activeRunIdRef.current ?? latestRun?.id;
+      console.log("🔄 [FEEDBACK_DEBUG] Run ID:", runId);
+      console.log("🔄 [FEEDBACK_DEBUG] Project ID:", projectId);
+      
       if (!runId) throw new Error("No active run ID");
+      if (!projectId) throw new Error("No project ID");
+      
+      console.log("🔄 [FEEDBACK_DEBUG] Making API call to submitFeedback...");
       return projectsApi.submitFeedback(projectId!, runId, feedback);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("✅ [FEEDBACK_DEBUG] Feedback successful:", data);
       setInterruptPayload(null);
       setLastFeedbackTime(Date.now()); // Record feedback submission time
       // Record the step we just gave feedback for
@@ -451,7 +468,13 @@ export function ProjectDetail() {
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
     onError: (err) => {
-      console.error("Feedback failed:", err);
+      console.error("❌ [FEEDBACK_DEBUG] Feedback failed:", err);
+      console.error("❌ [FEEDBACK_DEBUG] Error details:", {
+        message: err?.message,
+        response: err?.response?.data,
+        status: err?.response?.status,
+        stack: err?.stack
+      });
     },
   });
 

@@ -36,10 +36,11 @@ export function HumanReviewModal({
   const [action,   setAction]   = useState<"approve" | "reject" | "modify">("approve");
   const [feedback, setFeedback] = useState("");
   const [isEditing, setIsEditing] = useState(false);
-  const [editedSpec, setEditedSpec] = useState(payload.data.specification);
+  const [editedSpec, setEditedSpec] = useState(payload.data?.specification || null);
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = () => {
+    console.log("🎯 [MODAL_DEBUG] HandleSubmit called with:", { action, feedback: feedback.trim() || undefined });
     onSubmit({ action, feedback: feedback.trim() || undefined });
   };
 
@@ -49,7 +50,7 @@ export function HumanReviewModal({
   // ─── Requirements Edit/Download Handlers ──────────────────────────────────────
 
   const downloadRequirements = () => {
-    const spec = isEditing ? editedSpec : payload.data.specification;
+    const spec = isEditing ? editedSpec : payload.data?.specification;
     if (!spec) return;
 
     const content = JSON.stringify(spec, null, 2);
@@ -71,6 +72,7 @@ export function HumanReviewModal({
     try {
       await projectsApi.updateRequirements(projectId, runId, editedSpec);
       // Update the payload data with the edited specification
+      payload.data = payload.data || {};
       payload.data.specification = editedSpec;
       setIsEditing(false);
     } catch (error) {
@@ -82,14 +84,14 @@ export function HumanReviewModal({
   };
 
   const cancelEdit = () => {
-    setEditedSpec(payload.data.specification);
+    setEditedSpec(payload.data?.specification || null);
     setIsEditing(false);
   };
 
   // ─── Content Renderers ────────────────────────────────────────────────────
 
   const renderSpecification = () => {
-    const spec = isEditing ? editedSpec : payload.data.specification;
+    const spec = isEditing ? editedSpec : payload.data?.specification;
     if (!spec) return <EmptyState message="No specification data available." />;
 
     return (
@@ -242,7 +244,7 @@ export function HumanReviewModal({
   };
 
   const renderArchitecture = () => {
-    const arch = payload.data.architecture;
+    const arch = payload.data?.architecture;
     if (!arch) return <EmptyState message="No architecture data available." />;
 
     return (
@@ -286,9 +288,9 @@ export function HumanReviewModal({
   };
 
   const renderCodeReview = () => {
-    const review     = payload.data.review_comments;
-    const codeFiles  = payload.data.code_files ?? [];
-    const valSummary = payload.data.validation_summary;
+    const review     = payload.data?.review_comments;
+    const codeFiles  = payload.data?.code_files ?? [];
+    const valSummary = payload.data?.validation_summary;
 
     return (
       <div className="space-y-5">
@@ -434,7 +436,7 @@ export function HumanReviewModal({
           )}
 
         {/* Package Validation Results */}
-        {payload.data.package_validation && (
+        {payload.data?.package_validation && (
           <div className="bg-gray-800 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="h-4 w-4 text-orange-400" />
@@ -445,28 +447,28 @@ export function HumanReviewModal({
                 <span
                   className={clsx(
                     "text-xs px-2 py-1 rounded font-medium",
-                    payload.data.package_validation.validation_passed
+                    payload.data?.package_validation.validation_passed
                       ? "bg-green-900/50 text-green-300"
                       : "bg-red-900/50 text-red-300"
                   )}
                 >
-                  {payload.data.package_validation.validation_passed ? "PASSED" : "ISSUES FOUND"}
+                  {payload.data?.package_validation.validation_passed ? "PASSED" : "ISSUES FOUND"}
                 </span>
               </div>
             </div>
             
-            {payload.data.package_validation.validation_passed ? (
+            {payload.data?.package_validation.validation_passed ? (
               <p className="text-sm text-green-400">
                 ✅ All packages are current and compatible
               </p>
             ) : (
               <>
                 <p className="text-sm text-red-400 mb-3">
-                  {payload.data.package_validation.critical_issues_count} critical issues found that may prevent the project from building or running properly:
+                  {payload.data?.package_validation.critical_issues_count} critical issues found that may prevent the project from building or running properly:
                 </p>
                 
                 <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {payload.data.package_validation.critical_issues?.slice(0, 10).map((issue, idx) => (
+                  {payload.data?.package_validation.critical_issues?.slice(0, 10).map((issue, idx) => (
                     <div
                       key={idx}
                       className="bg-red-900/20 border border-red-900/40 rounded-lg p-2.5"
@@ -479,9 +481,9 @@ export function HumanReviewModal({
                       </p>
                     </div>
                   ))}
-                  {(payload.data.package_validation.critical_issues?.length || 0) > 10 && (
+                  {(payload.data?.package_validation.critical_issues?.length || 0) > 10 && (
                     <p className="text-xs text-gray-500 px-2.5">
-                      +{(payload.data.package_validation.critical_issues?.length || 0) - 10} more issues...
+                      +{(payload.data?.package_validation.critical_issues?.length || 0) - 10} more issues...
                     </p>
                   )}
                 </div>
@@ -512,7 +514,7 @@ export function HumanReviewModal({
   };
 
   const renderFinalReview = () => {
-    const data = payload.data;
+    const data = payload.data || {};
     return (
       <div className="space-y-5">
         <div className="grid grid-cols-2 gap-3">
@@ -582,7 +584,7 @@ export function HumanReviewModal({
       default:
         return (
           <pre className="text-xs text-gray-400 overflow-auto max-h-96 whitespace-pre-wrap font-mono">
-            {JSON.stringify(payload.data, null, 2)}
+            {JSON.stringify(payload.data || {}, null, 2)}
           </pre>
         );
     }

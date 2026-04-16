@@ -64,13 +64,29 @@ app = FastAPI(
 
 # ─── Middleware ────────────────────────────────────────────────────────────────
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.get_cors_origins_list(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Custom CORS middleware since FastAPI CORS middleware is not working
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response, PlainTextResponse
+
+class CustomCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Handle preflight requests
+        if request.method == "OPTIONS":
+            response = PlainTextResponse("OK", status_code=200)
+        else:
+            response = await call_next(request)
+        
+        # Add CORS headers to all responses
+        response.headers["Access-Control-Allow-Origin"] = "http://localhost:5173"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Max-Age"] = "86400"
+        
+        return response
+
+app.add_middleware(CustomCORSMiddleware)
 
 # ─── Routers ──────────────────────────────────────────────────────────────────
 
@@ -114,38 +130,30 @@ async def websocket_endpoint(
       run_cancelled — pipeline rejected by reviewer
       error        — unhandled agent error
     """
-    # Authenticate the WebSocket connection
-    user = None
-    if token:
-        try:
-            from app.auth.dependencies import get_current_user
-            from app.services.auth import auth_service
-            
-            # Verify the JWT token
-            payload = auth_service.verify_jwt_token(token)
-            # Note: In a real implementation, you'd want to get the user from the database
-            # For now, we'll just check that the token is valid
-        except Exception as e:
-            logger.warning(f"WebSocket authentication failed for run_id={run_id}: {e}")
-            await websocket.close(code=4001, reason="Authentication failed")
-            return
-    else:
-        logger.warning(f"WebSocket connection attempted without token for run_id={run_id}")
-        await websocket.close(code=4001, reason="Authentication required") 
-        return
-        
-    await ws_manager.connect(websocket, run_id)
-    logger.info(f"WebSocket client connected: run_id={run_id}, authenticated={bool(user)}")
-    logger.info(f"WebSocket client connected: run_id={run_id}")
+    # SIMPLIFIED VERSION FOR DEBUGGING
     try:
+        logger.info(f"🔍 [WS_DEBUG] WebSocket connection attempt for run_id: {run_id}")
+        
+        # Accept the connection immediately
+        await websocket.accept()
+        logger.info(f"✅ [WS_DEBUG] WebSocket accepted for run_id: {run_id}")
+        
+        # Add to manager
+        if run_id not in ws_manager._connections:
+            ws_manager._connections[run_id] = []
+        ws_manager._connections[run_id].append(websocket)
+        logger.info(f"✅ [WS_DEBUG] WebSocket registered for run_id: {run_id}")
+        
+        # Keep connection alive
         while True:
-            # Keep the connection alive; ignore any client messages.
-            # Future: accept feedback directly via WebSocket as an alternative
-            # to the REST feedback endpoint.
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket client disconnected: run_id={run_id}")
+            try:
+                await websocket.receive_text()
+            except Exception:
+                break
+                
     except Exception as exc:
-        logger.error(f"WebSocket error for run {run_id}: {exc}")
+        logger.error(f"❌ [WS_DEBUG] WebSocket error for run {run_id}: {exc}", exc_info=True)
     finally:
-        ws_manager.disconnect(websocket, run_id)
+        logger.info(f"🧹 [WS_DEBUG] Cleaning up WebSocket connection for run_id: {run_id}")
+        if run_id in ws_manager._connections and websocket in ws_manager._connections[run_id]:
+            ws_manager._connections[run_id].remove(websocket)

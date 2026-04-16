@@ -107,8 +107,8 @@ export const useAppStore = create<AppState>((set) => ({
         isAuthenticated: true, 
         isLoading: false 
       });
-    } catch (error) {
-      // Token is invalid, clear it
+    } catch (error: any) {
+      // Token is invalid or expired, clear it immediately
       console.error('Auth check failed:', error);
       tokenService.clearTokens();
       set({ 
@@ -116,6 +116,13 @@ export const useAppStore = create<AppState>((set) => ({
         isAuthenticated: false, 
         isLoading: false 
       });
+      
+      // If we're not on a public route, redirect to login
+      if (!window.location.pathname.startsWith('/login') && 
+          !window.location.pathname.startsWith('/register') && 
+          !window.location.pathname.startsWith('/verify-email')) {
+        window.location.href = '/login';
+      }
     }
   },
 

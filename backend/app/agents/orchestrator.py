@@ -207,23 +207,34 @@ class AgentOrchestrator:
     def _route_after_review(state: ProjectState) -> str:
         feedback = state.get("human_feedback", [])
         logger.info(f"🔍 _route_after_review: feedback_count={len(feedback)}")
+        
+        # Debug: Log the state contents
+        logger.error(f"🔍 [ROUTE_DEBUG] _route_after_review called with state keys: {list(state.keys())}")
+        logger.error(f"🔍 [ROUTE_DEBUG] Current step in state: {state.get('current_step', 'NOT_SET')}")
+        logger.error(f"🔍 [ROUTE_DEBUG] Feedback count: {len(feedback)}")
+        
         if not feedback:
             logger.info("🔍 _route_after_review: No feedback found, returning 'continue'")
+            logger.error("🔍 [ROUTE_DEBUG] No feedback found, returning 'continue'")
             return "continue"
-        
+
         latest_feedback = feedback[-1]
         action = latest_feedback.get("action", "approve")
         step = latest_feedback.get("step", "unknown")
         logger.info(f"🔍 _route_after_review: latest_feedback step='{step}' action='{action}'")
-        
+        logger.error(f"🔍 [ROUTE_DEBUG] Latest feedback: step='{step}' action='{action}'")
+
         if action == "reject":
             logger.info("🔍 _route_after_review: Routing to 'reject'")
+            logger.error("🔍 [ROUTE_DEBUG] Routing to 'reject'")
             return "reject"
         if action == "modify":
             logger.info("🔍 _route_after_review: Routing to 'redo'")
+            logger.error("🔍 [ROUTE_DEBUG] Routing to 'redo'")
             return "redo"
-        
+
         logger.info("🔍 _route_after_review: Routing to 'continue'")
+        logger.error("🔍 [ROUTE_DEBUG] Routing to 'continue' - should go to design_architecture")
         return "continue"
 
     # ─── Agent Nodes ──────────────────────────────────────────────────────────
@@ -240,23 +251,24 @@ class AgentOrchestrator:
         return {**result, "current_step": "requirements_analysis"}
 
     async def _human_review_requirements_node(self, state: ProjectState) -> ProjectState:
-        # Get run_id and check if this step was already approved
-        run_id = state.get("run_id")
-        if run_id:
-            # Check database for already approved steps
-            from app.database import AsyncSessionLocal
-            from app.models.project import ProjectRun
-            from sqlalchemy import select
-            
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(ProjectRun).where(ProjectRun.thread_id == run_id)
-                )
-                run = result.scalar_one_or_none()
+        # Check if we already have feedback for this step - if so, skip interrupt
+        existing_feedback = state.get("human_feedback", [])
+        for feedback in existing_feedback:
+            if feedback.get("step") == "requirements_analysis":
+                logger.error(f"🔍 [REQUIREMENTS_DEBUG] Found existing feedback for requirements_analysis, skipping interrupt")
+                # Process the existing feedback directly
+                action = feedback.get("action", "approve")
+                logger.info(f"Human review: requirements_analysis → {action} (from existing feedback)")
                 
-                if run and run.approved_steps and "requirements_analysis" in run.approved_steps:
-                    logger.info(f"🔄 Skipping requirements review - already approved in this session")
-                    return {**state, "current_step": "requirements_analysis"}
+                # Mark this step as approved in the database if needed
+                if action == "approve":
+                    # TODO: Add database marking logic here if needed
+                    logger.error(f"🔍 [REQUIREMENTS_DEBUG] Marking requirements_analysis as approved")
+                
+                return {**state, "current_step": "requirements_analysis"}
+        
+        # No existing feedback found - proceed with normal interrupt flow
+        logger.error(f"🔍 [REQUIREMENTS_DEBUG] No existing feedback found, creating interrupt")
         
         # First time - setup interrupt
         spec = state.get("specification") or {}
@@ -299,22 +311,45 @@ class AgentOrchestrator:
                         run.approved_steps = approved_steps
                         await db.commit()
                         logger.info(f"✅ Marked requirements_analysis as approved")
+                        await db.commit()
+                        logger.info(f"✅ Marked requirements_analysis as approved")
         
         return {**state, "human_feedback": [*state.get("human_feedback", []), feedback],
                 "current_step": "requirements_analysis"}
 
     async def _design_architecture_node(self, state: ProjectState) -> ProjectState:
+        logger.error(f"🎯 [ARCHITECT_DEBUG] _design_architecture_node called!")
+        logger.error(f"🎯 [ARCHITECT_DEBUG] State keys: {list(state.keys())}")
+        logger.error(f"🎯 [ARCHITECT_DEBUG] Current step: {state.get('current_step', 'NOT_SET')}")
+        
         await self._notify(state, "agent_start", "Architect",
                            "architecture_design", "Designing system architecture...")
+        logger.error(f"🎯 [ARCHITECT_DEBUG] About to execute architect agent...")
         result       = await self.architect_agent.execute(state)
+        logger.error(f"🎯 [ARCHITECT_DEBUG] Architect agent execution completed!")
         files_planned = len(result.get("architecture", {}).get("files_to_generate", []))
         await self._notify(state, "agent_complete", "Architect",
                            "architecture_design",
                            f"Architecture complete — {files_planned} files planned",
                            {"files_to_generate": files_planned})
+        logger.error(f"🎯 [ARCHITECT_DEBUG] _design_architecture_node returning result")
         return {**result, "current_step": "architecture_design"}
 
     async def _human_review_architecture_node(self, state: ProjectState) -> ProjectState:
+        # Check if we already have feedback for this step - if so, skip interrupt
+        existing_feedback = state.get("human_feedback", [])
+        for feedback in existing_feedback:
+            if feedback.get("step") == "architecture_design":
+                logger.error(f"🔍 [ARCHITECTURE_DEBUG] Found existing feedback for architecture_design, skipping interrupt")
+                # Process the existing feedback directly
+                action = feedback.get("action", "approve")
+                logger.info(f"Human review: architecture_design → {action} (from existing feedback)")
+                return {**state, "current_step": "architecture_design"}
+        
+        # No existing feedback found - proceed with normal interrupt flow
+        logger.error(f"🔍 [ARCHITECTURE_DEBUG] No existing feedback found, creating interrupt")
+        
+        # First time - setup interrupt
         arch = state.get("architecture") or {}
         payload = {
             "step":        "architecture_design",
@@ -452,18 +487,18 @@ class AgentOrchestrator:
         return {**result, "current_step": "code_review"}
 
     async def _human_review_code_node(self, state: ProjectState) -> ProjectState:
-        # Check if we already have feedback for this step (resume case)
+        # Check if we already have feedback for this step - if so, skip interrupt
         existing_feedback = state.get("human_feedback", [])
-        code_review_feedback = None
-        for fb in existing_feedback:
-            if fb.get("step") == "code_review":
-                code_review_feedback = fb
-                break
+        for feedback in existing_feedback:
+            if feedback.get("step") == "code_review":
+                logger.error(f"🔍 [CODE_REVIEW_DEBUG] Found existing feedback for code_review, skipping interrupt")
+                # Process the existing feedback directly
+                action = feedback.get("action", "approve")
+                logger.info(f"Human review: code_review → {action} (from existing feedback)")
+                return {**state, "current_step": "code_review"}
         
-        # If we already have feedback, don't interrupt again - just return current state
-        if code_review_feedback:
-            logger.info(f"Resume: Using existing code review feedback: {code_review_feedback.get('action', 'approve')}")
-            return {**state, "current_step": "code_review"}
+        # No existing feedback found - proceed with normal interrupt flow
+        logger.error(f"🔍 [CODE_REVIEW_DEBUG] No existing feedback found, creating interrupt")
         
         # First time - setup interrupt
         code_files         = state.get("code_files", [])
@@ -549,18 +584,18 @@ class AgentOrchestrator:
         return {**result, "current_step": "documentation"}
 
     async def _human_final_review_node(self, state: ProjectState) -> ProjectState:
-        # Check if we already have feedback for this step (resume case)
+        # Check if we already have feedback for this step - if so, skip interrupt
         existing_feedback = state.get("human_feedback", [])
-        final_review_feedback = None
-        for fb in existing_feedback:
-            if fb.get("step") == "final_review":
-                final_review_feedback = fb
-                break
+        for feedback in existing_feedback:
+            if feedback.get("step") == "final_review":
+                logger.error(f"🔍 [FINAL_REVIEW_DEBUG] Found existing feedback for final_review, skipping interrupt")
+                # Process the existing feedback directly
+                action = feedback.get("action", "approve")
+                logger.info(f"Human review: final_review → {action} (from existing feedback)")
+                return {**state, "current_step": "final_review"}
         
-        # If we already have feedback, don't interrupt again - just return current state
-        if final_review_feedback:
-            logger.info(f"Resume: Using existing final review feedback: {final_review_feedback.get('action', 'approve')}")
-            return {**state, "current_step": "final_review"}
+        # No existing feedback found - proceed with normal interrupt flow
+        logger.error(f"🔍 [FINAL_REVIEW_DEBUG] No existing feedback found, creating interrupt")
         
         # First time - setup interrupt
         code_files   = state.get("code_files", [])
@@ -681,6 +716,25 @@ class AgentOrchestrator:
         data:       Optional[dict] = None,
     ) -> None:
         try:
+            # For interrupt events, check if this step was already approved to prevent duplicate modals
+            if event_type == "interrupt" and "Human review required" in message:
+                run_id = state.get("run_id")
+                if run_id:
+                    # Check database for approved steps
+                    from app.database import AsyncSessionLocal
+                    from app.models.project import ProjectRun
+                    from sqlalchemy import select
+                    
+                    async with AsyncSessionLocal() as db:
+                        result = await db.execute(
+                            select(ProjectRun).where(ProjectRun.thread_id == run_id)
+                        )
+                        run = result.scalar_one_or_none()
+                        
+                        if run and run.approved_steps and step in run.approved_steps:
+                            logger.info(f"🛡️ Skipping duplicate interrupt for already approved step: {step}")
+                            return  # Don't send the interrupt notification
+            
             # Send real-time WebSocket notification
             await ws_manager.send_agent_event(
                 run_id=state["run_id"],
@@ -896,6 +950,18 @@ class AgentOrchestrator:
             
             if not has_interrupts:
                 logger.warning(f"No interrupts found for run {run_id} - continuing normal execution")
+                
+                # Even with no interrupts, we need to inject the feedback into the state
+                # so the human review node doesn't re-interrupt
+                current_state = state.values or {}
+                existing_feedback = current_state.get("human_feedback", [])
+                updated_feedback = [*existing_feedback, human_feedback]
+                updated_state = {**current_state, "human_feedback": updated_feedback}
+                
+                # Update the state with the feedback before continuing
+                await graph_with_checkpointer.aupdate_state(config, updated_state)
+                logger.info(f"Injected feedback into state for step: {human_feedback.get('step', 'unknown')} (no interrupts path)")
+                
                 # Just continue the graph execution without Command
                 async for event in graph_with_checkpointer.astream(None, config=config, stream_mode="updates"):
                     logger.debug(f"Continue node: {list(event.keys())}")

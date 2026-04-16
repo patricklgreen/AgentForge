@@ -105,7 +105,7 @@ class AuthService:
             return JWTPayload(**payload)
         except jwt.ExpiredSignatureError:
             raise AuthenticationError("Token has expired")
-        except jwt.InvalidTokenError as e:
+        except jwt.JWTError as e:
             logger.warning(f"Invalid JWT token: {e}")
             raise AuthenticationError("Invalid token")
     
