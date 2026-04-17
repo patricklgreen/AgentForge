@@ -135,6 +135,7 @@ class ProjectRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    cost_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="runs")

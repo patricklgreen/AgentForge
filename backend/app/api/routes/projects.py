@@ -27,6 +27,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from app.config import get_settings
 from app.auth.dependencies import CurrentUser, get_current_user
 from app.services.s3 import s3_service
+from app.services.run_cost_storage import persist_run_cost_snapshot
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -651,10 +652,19 @@ async def submit_human_feedback(
                 async def continue_workflow():
                     workflow_logger = logging.getLogger(f"workflow_{run.thread_id}")
                     final_result = None
-                    
+
                     try:
                         workflow_logger.error(f"🔥 [WORKFLOW_EXECUTION] Starting background workflow execution")
                         logger.error(f"🔥 [WORKFLOW_EXECUTION] Starting background workflow execution")
+
+                        # ═══ CRITICAL: Initialize cost tracking for manual trigger ═══
+                        from app.services.cost_tracker import CostTracker
+                        cost_tracker = CostTracker(run_id=run.thread_id)
+                        
+                        # Get orchestrator and set cost tracker for all agents
+                        orchestrator = await get_orchestrator()
+                        orchestrator._set_cost_tracker_for_agents(cost_tracker)
+                        logger.error(f"🔥 [WORKFLOW_EXECUTION] Cost tracker initialized for manual trigger")
 
                         # Database debug: Record workflow execution startup
                         async with AsyncSessionLocal() as workflow_db:
@@ -664,7 +674,7 @@ async def submit_human_feedback(
                                 agent_name="WorkflowExecution",
                                 step=run.current_step,
                                 message="WORKFLOW_EXECUTION: Background task started",
-                                data={},
+                                data={"cost_tracker_initialized": True},
                             )
                             workflow_db.add(debug_workflow_start)
                             await workflow_db.commit()
@@ -679,6 +689,7 @@ async def submit_human_feedback(
                             last_chunk = chunk
                             workflow_logger.error(f"📋 [WORKFLOW_EXECUTION] Step {step_count} completed: {chunk}")
                             logger.error(f"📋 [WORKFLOW_EXECUTION] Step {step_count} completed: {chunk}")
+                            await persist_run_cost_snapshot(run.thread_id, cost_tracker)
                             
                             # Debug: Always log chunk type and basic info
                             logger.error(f"🔍 [WORKFLOW_EXECUTION] Chunk type: {type(chunk)}, is_dict: {isinstance(chunk, dict)}")
@@ -804,6 +815,12 @@ async def submit_human_feedback(
                             try:
                                 logger.error(f"🔄 [WORKFLOW_EXECUTION] Applying final result to database: {final_result}")
                                 
+                                # Add cost summary to final result if cost tracker is available
+                                if 'cost_tracker' in locals() and cost_tracker:
+                                    cost_summary = cost_tracker.summary()
+                                    logger.error(f"💰 [WORKFLOW_EXECUTION] Cost summary: ${cost_summary['total_cost_usd']:.4f}")
+                                    final_result["cost_summary"] = cost_summary
+                                
                                 async with AsyncSessionLocal() as workflow_db:
                                     # Re-fetch the run and project to get fresh data
                                     updated_run = await workflow_db.get(ProjectRun, run.id)
@@ -812,6 +829,18 @@ async def submit_human_feedback(
                                     if updated_run:
                                         # Apply the orchestrator result to update status and interrupt_payload
                                         _apply_result_to_run(updated_run, updated_project, final_result)
+                                        
+                                        # Also try to update the state with cost summary if available
+                                        if final_result.get("cost_summary"):
+                                            try:
+                                                current_state = await graph_with_checkpointer.aget_state(config)
+                                                if current_state and current_state.values:
+                                                    updated_state = {**current_state.values, "cost_summary": final_result["cost_summary"]}
+                                                    await graph_with_checkpointer.aupdate_state(config, updated_state)
+                                                    logger.error(f"💰 [WORKFLOW_EXECUTION] Cost summary persisted to workflow state")
+                                            except Exception as cost_state_error:
+                                                logger.error(f"⚠️ [WORKFLOW_EXECUTION] Failed to persist cost to state: {cost_state_error}")
+                                        
                                         await workflow_db.commit()
                                         
                                         logger.error(f"✅ [WORKFLOW_EXECUTION] Database updated - Status: {updated_run.status}, Interrupt: {updated_run.interrupt_payload is not None}")
@@ -826,7 +855,8 @@ async def submit_human_feedback(
                                             data={
                                                 "final_status": final_result.get("status"),
                                                 "db_status": updated_run.status.value if hasattr(updated_run.status, 'value') else str(updated_run.status),
-                                                "has_interrupt_payload": updated_run.interrupt_payload is not None
+                                                "has_interrupt_payload": updated_run.interrupt_payload is not None,
+                                                "has_cost_summary": final_result.get("cost_summary") is not None
                                             },
                                         )
                                         workflow_db.add(debug_applied)
@@ -1178,6 +1208,9 @@ def _apply_result_to_run(
         if project:
             project.status = ProjectStatus.FAILED
 
+    if result.get("cost_summary"):
+        run.cost_summary = result["cost_summary"]
+
 
 async def _run_agents(
     orchestrator:     AgentOrchestrator,
@@ -1254,11 +1287,17 @@ async def _resume_agents(
     logger.info(f"🔄 Starting resume_agents background task for thread {thread_id}")
     try:
         logger.info(f"🔄 Calling orchestrator.resume_run for thread {thread_id}")
+        prior_cost = None
+        async with AsyncSessionLocal() as db:
+            r = await db.get(ProjectRun, run_db_id)
+            if r and r.cost_summary:
+                prior_cost = r.cost_summary
         # Add timeout to prevent hanging indefinitely
         result = await asyncio.wait_for(
             orchestrator.resume_run(
                 run_id=thread_id,
                 human_feedback=feedback,
+                prior_cost_summary=prior_cost,
             ),
             timeout=3600.0  # 1 hour timeout with Haiku (much faster than Opus)
         )
@@ -1336,6 +1375,9 @@ async def get_run_cost_summary(
 
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.cost_summary:
+        return run.cost_summary
 
     # Try to get cost summary from orchestrator state if available
     try:
@@ -1427,30 +1469,28 @@ async def get_project_cost_analytics(
     for run in runs:
         try:
             logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Processing run {run.id}, thread_id: {run.thread_id}")
-            config = {"configurable": {"thread_id": run.thread_id}}
-            
-            # Get state to check for cost_summary
-            logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Creating checkpointer for run {run.id}")
-            checkpointer_cm = AsyncPostgresSaver.from_conn_string(orchestrator.clean_conn)
-            checkpointer = await checkpointer_cm.__aenter__()
-            graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer) if orchestrator._graph else None
-            
-            if not graph_with_checkpointer:
-                logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Initializing orchestrator for run {run.id}")
-                await orchestrator.initialize()
-                graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer)
-            
-            logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Getting state for run {run.id}")
-            current_state = await graph_with_checkpointer.aget_state(config)
-            cost_summary = None
-            if current_state and current_state.values:
-                cost_summary = current_state.values.get("cost_summary")
-                logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Run {run.id} cost summary found: {bool(cost_summary)}")
-            else:
-                logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Run {run.id} no state or values found")
-            
-            # Cleanup
-            await checkpointer_cm.__aexit__(None, None, None)
+            cost_summary = run.cost_summary
+            if not cost_summary:
+                config = {"configurable": {"thread_id": run.thread_id}}
+                logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Creating checkpointer for run {run.id}")
+                checkpointer_cm = AsyncPostgresSaver.from_conn_string(orchestrator.clean_conn)
+                checkpointer = await checkpointer_cm.__aenter__()
+                graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer) if orchestrator._graph else None
+                
+                if not graph_with_checkpointer:
+                    logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Initializing orchestrator for run {run.id}")
+                    await orchestrator.initialize()
+                    graph_with_checkpointer = orchestrator._graph.compile(checkpointer=checkpointer)
+                
+                logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Getting state for run {run.id}")
+                current_state = await graph_with_checkpointer.aget_state(config)
+                if current_state and current_state.values:
+                    cost_summary = current_state.values.get("cost_summary")
+                    logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Run {run.id} cost summary found: {bool(cost_summary)}")
+                else:
+                    logger.info(f"🔍 [COST_ANALYTICS_DEBUG] Run {run.id} no state or values found")
+                
+                await checkpointer_cm.__aexit__(None, None, None)
             
             if cost_summary:
                 run_cost = cost_summary.get("total_cost_usd", 0.0)

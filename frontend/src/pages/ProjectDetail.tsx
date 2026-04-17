@@ -20,7 +20,6 @@ import {
   XCircle,
   Clock,
   ExternalLink,
-  StopCircle,
   Trash2,
   Download,
 } from "lucide-react";
@@ -32,6 +31,7 @@ import { AgentTimeline } from "../components/AgentTimeline";
 import { HumanReviewModal } from "../components/HumanReviewModal";
 import { CodeViewer } from "../components/CodeViewer";
 import CostAnalytics from "../components/CostAnalytics";
+import CostTracker from "../components/CostTracker";
 import type {
   WsMessage,
   InterruptPayload,
@@ -185,6 +185,7 @@ export function ProjectDetail() {
   const [lastFeedbackTime, setLastFeedbackTime] = useState<number>(0); // Track when feedback was last submitted
   const [lastFeedbackStep, setLastFeedbackStep] = useState<string | null>(null); // Track which step we last gave feedback for
   const [shownInterruptIds, setShownInterruptIds] = useState<Set<string>>(new Set()); // Track which interrupts we've already shown
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false); // Prevent modal re-trigger during submission
   const [activeTab,        setActiveTab]        = useState<ActiveTab>("timeline");
   const [liveCodeFiles,    setLiveCodeFiles]    = useState<CodeFile[]>([]);
   const [isDownloading,    setIsDownloading]    = useState(false);
@@ -206,32 +207,43 @@ export function ProjectDetail() {
    * Prevents showing the same interrupt multiple times.
    */
   const showInterruptPayload = useCallback((payload: InterruptPayload, source: string) => {
+    // Don't show modal if we're currently submitting feedback
+    if (isSubmittingFeedback) {
+      console.log(`🔕 Skipping interrupt - currently submitting feedback`);
+      return;
+    }
+
     try {
-      // Create a unique ID for this interrupt based on step and a hash of the payload
-      const dataString = JSON.stringify(payload.data || {});
-      const payloadHash = dataString.substring(0, 8);
-      const interruptId = `${payload.step}-${payloadHash}`;
+      // Create a unique ID for this interrupt based on step, title, and run timestamp
+      // More reliable than hashing large payload data
+      const interruptId = `${payload.step}-${payload.title?.replace(/\s+/g, '-')?.substring(0, 20)}-${Date.now().toString().slice(-6)}`;
       
       console.log(`🔔 Attempting to show interrupt from ${source}:`, { 
         step: payload.step, 
+        title: payload.title,
         interruptId,
         alreadyShown: shownInterruptIds.has(interruptId),
-        currentModal: !!interruptPayload
+        currentModal: !!interruptPayload,
+        isSubmittingFeedback
       });
 
-    // Only show if we haven't shown this exact interrupt before
-    if (!shownInterruptIds.has(interruptId)) {
-      setInterruptPayload(payload);
-      setShownInterruptIds(prev => new Set([...Array.from(prev), interruptId]));
-    } else {
-      console.log(`🔕 Skipping duplicate interrupt: ${interruptId}`);
+      // Only show if we haven't shown this exact interrupt before AND no modal is currently open AND not submitting
+      if (!shownInterruptIds.has(interruptId) && !interruptPayload && !isSubmittingFeedback) {
+        setInterruptPayload(payload);
+        setShownInterruptIds(prev => new Set([...Array.from(prev), interruptId]));
+        console.log(`✅ Showing interrupt modal: ${interruptId}`);
+      } else {
+        console.log(`🔕 Skipping interrupt - duplicate: ${shownInterruptIds.has(interruptId)}, modalOpen: ${!!interruptPayload}, submitting: ${isSubmittingFeedback}`);
+      }
+    } catch (error) {
+      console.error('Error in showInterruptPayload:', error, { payload, source });
+      // Fallback: still try to show the modal even if ID generation failed, but only if no modal is open and not submitting
+      if (!interruptPayload && !isSubmittingFeedback) {
+        setInterruptPayload(payload);
+        console.log('🔧 Fallback: Showing interrupt modal without deduplication');
+      }
     }
-  } catch (error) {
-    console.error('Error in showInterruptPayload:', error, { payload, source });
-    // Fallback: still try to show the modal even if ID generation failed
-    setInterruptPayload(payload);
-  }
-}, [shownInterruptIds, interruptPayload]);
+  }, [shownInterruptIds, interruptPayload, isSubmittingFeedback]);
 
   // ─── Data Fetching ──────────────────────────────────────────────────────────
 
@@ -284,6 +296,16 @@ export function ProjectDetail() {
     latestRun.current_step !== "requirements_analysis" &&
     latestRun.current_step !== "pending";
 
+  // ─── Cost Analytics Refresh ───────────────────────────────────────────────
+  useEffect(() => {
+    // Invalidate cost queries when project completes or fails
+    if (isCompleted || isFailed) {
+      console.log('🔄 Project completed/failed - invalidating cost analytics');
+      queryClient.invalidateQueries({ queryKey: ["project-cost-analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["project-cost-tracker"] });
+    }
+  }, [isCompleted, isFailed, queryClient]);
+
   // ─── WebSocket ──────────────────────────────────────────────────────────────
 
   const addLogEntry = useCallback((msg: WsMessage) => {
@@ -335,6 +357,8 @@ export function ProjectDetail() {
         // Handle agent complete events
         if (msg.type === "agent_complete") {
           queryClient.invalidateQueries({ queryKey: ["runs", projectId] });
+          queryClient.invalidateQueries({ queryKey: ["project-cost-tracker", projectId] });
+          queryClient.invalidateQueries({ queryKey: ["project-cost-analytics", projectId] });
 
           // Capture live code files as they arrive
           if (msg.data?.code_files && Array.isArray(msg.data.code_files)) {
@@ -354,6 +378,8 @@ export function ProjectDetail() {
         ) {
           queryClient.invalidateQueries({ queryKey: ["project", projectId] });
           queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
+          queryClient.invalidateQueries({ queryKey: ["project-cost-tracker", projectId] });
+          queryClient.invalidateQueries({ queryKey: ["project-cost-analytics", projectId] });
         }
       });
 
@@ -388,6 +414,20 @@ export function ProjectDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestRun?.id, latestRun?.status, showInterruptPayload]);
 
+  // ─── Immediate interrupt detection on status change ────────────────────────
+  useEffect(() => {
+    // Detect when a run transitions to waiting_review state
+    if (latestRun?.status === "waiting_review" && latestRun.interrupt_payload && !isSubmittingFeedback) {
+      const payload = latestRun.interrupt_payload as InterruptPayload;
+      console.log("🔄 Status change detected: waiting_review with interrupt payload");
+      
+      // Show immediately if no modal is currently open and not submitting feedback
+      if (!interruptPayload) {
+        showInterruptPayload(payload, "status-change");
+      }
+    }
+  }, [latestRun?.status, latestRun?.interrupt_payload, interruptPayload, isSubmittingFeedback, showInterruptPayload]);
+
   // ─── Fallback: Periodic check for missed review modals ────────────────────
   
   useEffect(() => {
@@ -395,28 +435,29 @@ export function ProjectDetail() {
       const latestRun = runs?.[0];
       const timeSinceLastFeedback = Date.now() - lastFeedbackTime;
       
-      if (latestRun?.status === "waiting_review" && latestRun.interrupt_payload) {
+      if (latestRun?.status === "waiting_review" && latestRun.interrupt_payload && !isSubmittingFeedback) {
         const payload = latestRun.interrupt_payload as InterruptPayload;
         
         // Only show modal if:
         // 1. No current modal AND
         // 2. It's a different step than we just gave feedback for AND
-        // 3. At least 3 minutes have passed since last feedback (gives backend plenty of time to process)
+        // 3. At least 10 seconds have passed since last feedback (reduced from 3 minutes!) AND
+        // 4. Not currently submitting feedback
         if (!interruptPayload && 
             payload.step !== lastFeedbackStep &&
-            timeSinceLastFeedback > 180000) {
-          console.log("🔄 Fallback: Auto-showing missed review modal");
+            timeSinceLastFeedback > 10000) {
+          console.log("🔄 Fallback: Auto-showing missed review modal (10s delay)");
           showInterruptPayload(payload, "fallback");
         }
       }
     };
 
-    // Check immediately and then every 10 seconds
+    // Check immediately and then every 5 seconds for faster response
     checkForPendingReviews();
-    const interval = setInterval(checkForPendingReviews, 10000);
+    const interval = setInterval(checkForPendingReviews, 5000);
 
     return () => clearInterval(interval);
-  }, [runs, interruptPayload, lastFeedbackTime, lastFeedbackStep, showInterruptPayload]);
+  }, [runs, interruptPayload, lastFeedbackTime, lastFeedbackStep, isSubmittingFeedback, showInterruptPayload]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -434,6 +475,7 @@ export function ProjectDetail() {
       setLiveCodeFiles([]);
       setInterruptPayload(null);
       setShownInterruptIds(new Set()); // Clear shown interrupts for new run
+      setIsSubmittingFeedback(false); // Reset feedback submission state for new run
       setActiveTab("timeline");
       queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -456,18 +498,34 @@ export function ProjectDetail() {
       console.log("🔄 [FEEDBACK_DEBUG] Making API call to submitFeedback...");
       return projectsApi.submitFeedback(projectId!, runId, feedback);
     },
+    onMutate: () => {
+      // Set submitting state to prevent modal re-trigger during feedback submission
+      setIsSubmittingFeedback(true);
+      console.log("🔄 [FEEDBACK_DEBUG] Starting feedback submission - preventing modal re-trigger");
+    },
     onSuccess: (data) => {
       console.log("✅ [FEEDBACK_DEBUG] Feedback successful:", data);
+      
+      // Hide modal immediately
       setInterruptPayload(null);
       setLastFeedbackTime(Date.now()); // Record feedback submission time
+      
       // Record the step we just gave feedback for
       if (interruptPayload?.step) {
         setLastFeedbackStep(interruptPayload.step);
       }
+      
+      // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["runs",    projectId] });
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      
+      // Keep submitting state for a brief moment to prevent immediate re-trigger
+      setTimeout(() => {
+        setIsSubmittingFeedback(false);
+        console.log("🔄 [FEEDBACK_DEBUG] Feedback submission complete - allowing new modals");
+      }, 2000); // Wait 2 seconds before allowing new modals
     },
-    onError: (err) => {
+    onError: (err: any) => {
       console.error("❌ [FEEDBACK_DEBUG] Feedback failed:", err);
       console.error("❌ [FEEDBACK_DEBUG] Error details:", {
         message: err?.message,
@@ -475,6 +533,9 @@ export function ProjectDetail() {
         status: err?.response?.status,
         stack: err?.stack
       });
+      
+      // Reset submitting state on error
+      setIsSubmittingFeedback(false);
     },
   });
 
@@ -795,6 +856,14 @@ export function ProjectDetail() {
                   </span>
                 )}
               </div>
+              
+              {/* Cost Tracker - Compact display at top */}
+              <div className="mt-2">
+                <CostTracker 
+                  projectId={projectId!} 
+                  projectStatus={project.status}
+                />
+              </div>
             </div>
           </div>
 
@@ -820,22 +889,6 @@ export function ProjectDetail() {
               </button>
             )}
 
-            {/* Cancel (when waiting for review) */}
-            {isWaiting && (
-              <button
-                onClick={() => cancelMutation.mutate()}
-                disabled={cancelMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-400 hover:text-gray-200 rounded-xl text-sm font-medium transition-colors border border-gray-700"
-                title="Cancel this build"
-              >
-                {cancelMutation.isPending ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Cancelling...</>
-                ) : (
-                  <><StopCircle className="h-4 w-4" /> Cancel Build</>
-                )}
-              </button>
-            )}
-
             {/* Start / Retry */}
             {canStart && (
               <button
@@ -851,7 +904,7 @@ export function ProjectDetail() {
               </button>
             )}
 
-            {/* Cancel Button */}
+            {/* Cancel Build - Unified button for both running and waiting states */}
             {(isRunning || isWaiting) && (
               <button
                 onClick={() => cancelMutation.mutate()}
@@ -1075,13 +1128,11 @@ export function ProjectDetail() {
                 events={latestRun?.events ?? []}
                 currentStep={latestRun?.current_step}
                 runStatus={latestRun?.status}
-                projectId={projectId}
-                runId={latestRun?.id || ''}
               />
 
               {/* Cost Analytics */}
               <div className="mt-8">
-                <CostAnalytics projectId={projectId} />
+                <CostAnalytics projectId={projectId!} projectStatus={project?.status} />
               </div>
 
               {!latestRun && !runsLoading && (
@@ -1301,6 +1352,7 @@ export function ProjectDetail() {
             // Always allow manual dismissal of modal
             setInterruptPayload(null);
             setLastFeedbackTime(Date.now());
+            setIsSubmittingFeedback(false); // Reset submission state when manually closed
             // Also record this as handled to prevent immediate re-showing
             if (interruptPayload?.step) {
               setLastFeedbackStep(interruptPayload.step);

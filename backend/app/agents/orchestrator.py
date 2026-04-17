@@ -20,6 +20,7 @@ from app.agents.package_validation_agent import PackageValidationAgent
 from app.services.s3 import s3_service
 from app.services.websocket_manager import ws_manager
 from app.services.cost_tracker import CostTracker
+from app.services.run_cost_storage import persist_run_cost_snapshot
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -864,7 +865,7 @@ class AgentOrchestrator:
             import asyncio
             timeout_hours = 2  # Maximum 2 hours for any workflow
             timeout_seconds = timeout_hours * 3600
-            
+
             try:
                 async with asyncio.timeout(timeout_seconds):
                     async for event in graph_with_checkpointer.astream(initial, config=config, stream_mode="updates"):
@@ -872,6 +873,7 @@ class AgentOrchestrator:
                         # Log progress every few nodes to help debug stalls
                         if any(key in ["generate_code", "validate_code", "write_tests", "review_code"] for key in event.keys()):
                             logger.info(f"✅ Major milestone completed: {list(event.keys())}")
+                        await persist_run_cost_snapshot(run_id, cost_tracker)
             except asyncio.TimeoutError:
                 error_msg = f"Workflow timed out after {timeout_hours} hours"
                 logger.error(f"Run {run_id} timed out: {error_msg}")
@@ -913,7 +915,12 @@ class AgentOrchestrator:
             except:
                 pass  # Ignore cleanup errors
 
-    async def resume_run(self, run_id: str, human_feedback: dict) -> dict:
+    async def resume_run(
+        self,
+        run_id: str,
+        human_feedback: dict,
+        prior_cost_summary: Optional[dict] = None,
+    ) -> dict:
         """Resume a paused run after human review. Returns status dict."""
         if not self._graph:
             await self.initialize()
@@ -927,8 +934,9 @@ class AgentOrchestrator:
         
         config = {"configurable": {"thread_id": run_id}}
         
-        # Initialize cost tracking for the resumed run
+        # Initialize cost tracking; merge prior segment so totals stay cumulative
         cost_tracker = CostTracker(run_id=run_id)
+        cost_tracker.apply_prior_summary(prior_cost_summary)
         self._set_cost_tracker_for_agents(cost_tracker)
         
         try:
@@ -938,7 +946,13 @@ class AgentOrchestrator:
             
             if not state.next:
                 logger.warning(f"No pending state for run {run_id} - returning current state")
-                return await self._get_run_result(config, graph_with_checkpointer)
+                result = await self._get_run_result(config, graph_with_checkpointer)
+                if cost_tracker:
+                    cost_summary = cost_tracker.summary()
+                    logger.info(f"Resumed run {run_id} cost summary: ${cost_summary['total_cost_usd']:.4f}")
+                    result["cost_summary"] = cost_summary
+                    await persist_run_cost_snapshot(run_id, cost_tracker)
+                return result
             
             # Check if there are interrupts waiting
             has_interrupts = False
@@ -966,6 +980,7 @@ class AgentOrchestrator:
                 async for event in graph_with_checkpointer.astream(None, config=config, stream_mode="updates"):
                     logger.debug(f"Continue node: {list(event.keys())}")
                     await self._handle_streaming_event(event, run_id)
+                    await persist_run_cost_snapshot(run_id, cost_tracker)
             else:
                 logger.info(f"Resuming interrupted run {run_id} with feedback: {human_feedback}")
                 
@@ -985,18 +1000,13 @@ class AgentOrchestrator:
                 ):
                     logger.debug(f"Resume node: {list(event.keys())}")
                     await self._handle_streaming_event(event, run_id)
+                    await persist_run_cost_snapshot(run_id, cost_tracker)
             
-            return await self._get_run_result(config, graph_with_checkpointer)
-        except Exception as exc:
-            logger.error(f"Resume {run_id} failed: {exc}", exc_info=True)
-            raise
-        finally:
-            # Add cost summary to the final result if cost tracker is available
+            result = await self._get_run_result(config, graph_with_checkpointer)
             if cost_tracker:
                 cost_summary = cost_tracker.summary()
                 logger.info(f"Resumed run {run_id} cost summary: ${cost_summary['total_cost_usd']:.4f}")
-                
-                # Try to update the state with cost summary
+                result["cost_summary"] = cost_summary
                 try:
                     current_state = await graph_with_checkpointer.aget_state(config)
                     if current_state and current_state.values:
@@ -1004,10 +1014,15 @@ class AgentOrchestrator:
                         await graph_with_checkpointer.aupdate_state(config, updated_state)
                 except Exception as exc:
                     logger.warning(f"Failed to update state with cost summary: {exc}")
-            
+                await persist_run_cost_snapshot(run_id, cost_tracker)
+            return result
+        except Exception as exc:
+            logger.error(f"Resume {run_id} failed: {exc}", exc_info=True)
+            raise
+        finally:
             try:
                 await checkpointer_cm.__aexit__(None, None, None)
-            except:
+            except Exception:
                 pass  # Ignore cleanup errors
 
     async def _handle_streaming_event(self, event: dict, run_id: str) -> None:

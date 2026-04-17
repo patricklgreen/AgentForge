@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
   DollarSign, 
@@ -14,6 +14,7 @@ import { projectsApi } from '../api/client';
 interface CostAnalyticsProps {
   projectId: string;
   className?: string;
+  projectStatus?: string; // Add project status to trigger refresh
 }
 
 interface CostAnalytics {
@@ -40,13 +41,37 @@ interface CostAnalytics {
   }>;
 }
 
-const CostAnalytics: React.FC<CostAnalyticsProps> = ({ projectId, className = "" }) => {
-  const { data: analytics, isLoading, error } = useQuery<CostAnalytics>({
+const CostAnalytics: React.FC<CostAnalyticsProps> = ({ projectId, className = "", projectStatus }) => {
+  const isActiveBuild =
+    projectStatus === 'running' || projectStatus === 'waiting_review';
+
+  const { data: analytics, isLoading, error, refetch } = useQuery<CostAnalytics>({
     queryKey: ['project-cost-analytics', projectId],
     queryFn: () => projectsApi.getCostAnalytics(projectId),
     enabled: !!projectId,
+    refetchInterval: isActiveBuild ? 4000 : false,
     refetchOnWindowFocus: false,
+    staleTime: isActiveBuild ? 0 : 30000,
+    gcTime: 300000, // Keep in cache for 5 minutes
+    retry: (failureCount, error: any) => {
+      // Don't retry on auth errors or not found
+      if (error?.response?.status === 401 || error?.response?.status === 403 || error?.response?.status === 404) {
+        return false;
+      }
+      return failureCount < 2;
+    },
   });
+
+  // Refetch cost analytics when project completes
+  useEffect(() => {
+    if (projectStatus === 'completed' || projectStatus === 'failed') {
+      console.log('🔄 Project completed/failed - refreshing cost analytics');
+      // Wait a bit for the backend to finalize cost calculations
+      setTimeout(() => {
+        refetch();
+      }, 2000);
+    }
+  }, [projectStatus, refetch]);
 
   if (isLoading) {
     return (
@@ -67,6 +92,8 @@ const CostAnalytics: React.FC<CostAnalyticsProps> = ({ projectId, className = ""
   }
 
   if (error || !analytics) {
+    const axiosError = error as any;
+    console.error('Cost analytics error:', error);
     return (
       <div className={`bg-gray-800 rounded-xl p-6 border border-gray-700 ${className}`}>
         <div className="flex items-center gap-2 mb-4">
@@ -74,8 +101,22 @@ const CostAnalytics: React.FC<CostAnalyticsProps> = ({ projectId, className = ""
           <h3 className="text-lg font-medium text-gray-400">Cost Analytics</h3>
         </div>
         <p className="text-gray-500 text-sm">
-          {error ? 'Failed to load cost analytics' : 'No cost data available'}
+          {axiosError?.response?.status === 401 || axiosError?.response?.status === 403 
+            ? 'Authentication required to view cost analytics' 
+            : axiosError?.response?.status === 404 
+            ? 'Project not found' 
+            : error 
+            ? 'Failed to load cost analytics' 
+            : 'No cost data available'}
         </p>
+        {axiosError?.response?.status === 401 || axiosError?.response?.status === 403 ? (
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 text-xs text-indigo-400 hover:text-indigo-300"
+          >
+            Refresh page to re-authenticate
+          </button>
+        ) : null}
       </div>
     );
   }

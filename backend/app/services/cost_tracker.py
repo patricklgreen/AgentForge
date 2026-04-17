@@ -39,6 +39,22 @@ class CostTracker:
     calls_by_agent: dict[str, int] = field(default_factory=dict)
     cost_by_agent: dict[str, float] = field(default_factory=dict)
 
+    def apply_prior_summary(self, prior: Optional[dict]) -> None:
+        """
+        Merge in totals from a previously persisted segment (e.g. pre-interrupt work)
+        so resume runs accumulate full project cost.
+        """
+        if not prior:
+            return
+        self.total_input_tokens += int(prior.get("total_input_tokens") or 0)
+        self.total_output_tokens += int(prior.get("total_output_tokens") or 0)
+        self.total_cost_usd += float(prior.get("total_cost_usd") or 0.0)
+        self.call_count += int(prior.get("call_count") or 0)
+        for agent, n in (prior.get("calls_by_agent") or {}).items():
+            self.calls_by_agent[agent] = self.calls_by_agent.get(agent, 0) + int(n)
+        for agent, c in (prior.get("cost_by_agent") or {}).items():
+            self.cost_by_agent[agent] = self.cost_by_agent.get(agent, 0.0) + float(c)
+
     def record(
         self,
         agent: str,

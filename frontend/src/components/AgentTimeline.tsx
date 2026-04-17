@@ -8,10 +8,7 @@ import {
   XCircle,
   Clock,
 } from "lucide-react";
-import { useQuery } from '@tanstack/react-query';
 import type { RunEvent } from "../types";
-import { projectsApi } from '../api/client';
-import CostTracker from './CostTracker';
 
 // ─── Pipeline Step Definition ────────────────────────────────────────────────
 
@@ -117,34 +114,15 @@ interface AgentTimelineProps {
   events:      RunEvent[];
   currentStep: string | undefined;
   runStatus:   string | undefined;
-  projectId:   string;
-  runId:       string;
 }
 
 export function AgentTimeline({
   events,
   currentStep,
   runStatus,
-  projectId,
-  runId,
 }: AgentTimelineProps) {
-  // Query cost data for this run
-  const { data: costSummary, isLoading: costLoading } = useQuery({
-    queryKey: ['run-cost', projectId, runId],
-    queryFn: () => projectsApi.getRunCost(projectId, runId),
-    enabled: !!projectId && !!runId && (runStatus === 'completed' || runStatus === 'failed'),
-    refetchOnWindowFocus: false,
-  });
-
   return (
     <div className="space-y-4">
-      {/* Cost Tracker */}
-      <CostTracker 
-        costSummary={costSummary} 
-        isLoading={costLoading}
-        className="mb-4" 
-      />
-      
       {/* Agent Pipeline */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">

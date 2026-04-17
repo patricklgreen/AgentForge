@@ -140,6 +140,26 @@ class TestCostTracker:
         assert tracker.total_input_tokens == 3000
         assert tracker.total_output_tokens == 1500
 
+    def test_apply_prior_summary_merges_segments(self):
+        """Resume runs merge a persisted prior segment with new LLM calls."""
+        tracker = CostTracker("run-resume")
+        prior = {
+            "total_input_tokens": 100,
+            "total_output_tokens": 50,
+            "total_cost_usd": 0.01,
+            "call_count": 2,
+            "calls_by_agent": {"AgentA": 2},
+            "cost_by_agent": {"AgentA": 0.01},
+        }
+        tracker.apply_prior_summary(prior)
+        tracker.record("AgentB", "default", 1000, 500)
+        s = tracker.summary()
+        assert s["total_input_tokens"] == 1100
+        assert s["total_output_tokens"] == 550
+        assert s["call_count"] == 3
+        assert s["calls_by_agent"]["AgentA"] == 2
+        assert s["calls_by_agent"]["AgentB"] == 1
+
     def test_cost_precision(self):
         """Test cost calculation precision."""
         tracker = CostTracker("test-run-123")
