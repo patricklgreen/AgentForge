@@ -658,13 +658,19 @@ async def submit_human_feedback(
                         logger.error(f"🔥 [WORKFLOW_EXECUTION] Starting background workflow execution")
 
                         # ═══ CRITICAL: Initialize cost tracking for manual trigger ═══
+                        # Must merge DB cost from the pre-interrupt segment; otherwise the first
+                        # persist_run_cost_snapshot overwrites run.cost_summary with ~$0.
                         from app.services.cost_tracker import CostTracker
+                        prior_cost = None
+                        async with AsyncSessionLocal() as workflow_db:
+                            r = await workflow_db.get(ProjectRun, run_id)
+                            if r and r.cost_summary:
+                                prior_cost = r.cost_summary
                         cost_tracker = CostTracker(run_id=run.thread_id)
-                        
-                        # Get orchestrator and set cost tracker for all agents
+                        cost_tracker.apply_prior_summary(prior_cost)
                         orchestrator = await get_orchestrator()
                         orchestrator._set_cost_tracker_for_agents(cost_tracker)
-                        logger.error(f"🔥 [WORKFLOW_EXECUTION] Cost tracker initialized for manual trigger")
+                        logger.error(f"🔥 [WORKFLOW_EXECUTION] Cost tracker initialized for manual trigger (prior merged: {prior_cost is not None})")
 
                         # Database debug: Record workflow execution startup
                         async with AsyncSessionLocal() as workflow_db:

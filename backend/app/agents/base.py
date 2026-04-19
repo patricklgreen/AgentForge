@@ -35,23 +35,23 @@ class BaseAgent(ABC):
     def _get_directive_context(self, state: dict[str, Any]) -> str:
         """
         Generate directive-based coding standards for the current project.
-        
+
         This ensures all agents follow consistent, high-quality patterns
         based on the deftai/directive framework.
         """
         specification = state.get("specification") or {}
-        
+
         # For early agents (like RequirementsAnalyst), we might not have specification yet
         # In that case, use state-level language/framework info
         target_language = (
-            specification.get("target_language") or 
+            specification.get("target_language") or
             state.get("target_language", "Python")
         )
         target_framework = (
-            specification.get("target_framework") or 
+            specification.get("target_framework") or
             state.get("target_framework")
         )
-        
+
         # Determine project type from requirements
         requirements = state.get("requirements", "").lower()
         if any(term in requirements for term in ["api", "rest", "endpoint", "server"]):
@@ -60,15 +60,20 @@ class BaseAgent(ABC):
             project_type = "web"
         else:
             project_type = "api"  # Default to API
-        
+
         directive = directive_service.generate_coding_directive(
             language=target_language,
             framework=target_framework,
             project_type=project_type
         )
-        
-        self.logger.info(f"Applied directive standards for {target_language}/{target_framework} ({project_type})")
-        
+
+        self.logger.info(
+            "Applied directive standards for %s/%s (%s)",
+            target_language,
+            target_framework,
+            project_type,
+        )
+
         return directive
 
     @abstractmethod
@@ -85,53 +90,25 @@ class BaseAgent(ABC):
         state: Optional[dict[str, Any]] = None,
     ) -> str:
         """Invoke the LLM and return the raw string response."""
-        
-        # Add directive context if requested and state is available
         if include_directive and state:
             directive_context = self._get_directive_context(state)
             system_prompt = f"{directive_context}\n\n{system_prompt}"
-        
-        max_retries = 2  # Retry once for credential refresh
-        
-        for attempt in range(max_retries + 1):
-            try:
-                # Use the updated bedrock service that returns usage info
-                content, usage_info = await self.bedrock.invoke(
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    use_fast_model=use_fast_model,
-                )
-                
-                # Record cost if cost tracker is available
-                if self._cost_tracker:
-                    self._cost_tracker.record(
-                        agent=self.name,
-                        model_id=usage_info['model_id'],
-                        input_tokens=usage_info['input_tokens'],
-                        output_tokens=usage_info['output_tokens'],
-                    )
-                    
-                return content
-                
-            except Exception as exc:
-                error_str = str(exc)
-                
-                # Check for AWS signature expiration errors
-                if "InvalidSignatureException" in error_str or "Signature expired" in error_str:
-                    self.logger.warning(f"AWS signature expired on attempt {attempt + 1}: {exc}")
-                    
-                    if attempt < max_retries:
-                        # Clear the LLM cache to force credential refresh
-                        self.logger.info("Clearing Bedrock cache to refresh credentials...")
-                        self.bedrock.clear_cache()
-                        
-                        # Wait a bit before retry to allow credential refresh
-                        import asyncio
-                        await asyncio.sleep(2)
-                        continue
-                
-                self.logger.error(f"LLM invocation failed: {exc}")
-                raise
+
+        content, usage_info = await self.bedrock.invoke(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            use_fast_model=use_fast_model,
+        )
+
+        if self._cost_tracker:
+            self._cost_tracker.record(
+                agent=self.name,
+                model_id=usage_info["model_id"],
+                input_tokens=usage_info["input_tokens"],
+                output_tokens=usage_info["output_tokens"],
+            )
+
+        return content
 
     async def _invoke_llm_json(
         self,
@@ -142,27 +119,24 @@ class BaseAgent(ABC):
         state: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Invoke LLM and parse the response as JSON."""
-        
-        # Add directive context if requested and state is available
         if include_directive and state:
             directive_context = self._get_directive_context(state)
             system_prompt = f"{directive_context}\n\n{system_prompt}"
-        
+
         result, usage_info = await self.bedrock.invoke_with_json_output(
             system_prompt=system_prompt,
             user_message=user_message,
             use_fast_model=use_fast_model,
         )
-        
-        # Record cost if cost tracker is available
+
         if self._cost_tracker:
             self._cost_tracker.record(
                 agent=self.name,
-                model_id=usage_info['model_id'],
-                input_tokens=usage_info['input_tokens'],
-                output_tokens=usage_info['output_tokens'],
+                model_id=usage_info["model_id"],
+                input_tokens=usage_info["input_tokens"],
+                output_tokens=usage_info["output_tokens"],
             )
-        
+
         return result
 
     def _log_step(self, message: str, data: Any = None) -> None:

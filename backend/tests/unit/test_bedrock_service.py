@@ -66,21 +66,22 @@ class TestBedrockService:
                 assert llm == mock_llm
                 mock_chatbedrock.assert_called_once()
 
-    def test_get_llm_caches_instances(self):
-        """Test get_llm caches LLM instances."""
+    def test_get_llm_creates_fresh_instances(self):
+        """Each get_llm call builds a new ChatBedrock (no stale boto clients)."""
         with patch('boto3.client'):
             service = BedrockService()
             
             with patch('app.services.bedrock.ChatBedrock') as mock_chatbedrock:
-                mock_llm = MagicMock()
-                mock_chatbedrock.return_value = mock_llm
+                mock_llm1 = MagicMock()
+                mock_llm2 = MagicMock()
+                mock_chatbedrock.side_effect = [mock_llm1, mock_llm2]
                 
                 llm1 = service.get_llm(model_id="claude-3-haiku", temperature=0.1)
                 llm2 = service.get_llm(model_id="claude-3-haiku", temperature=0.1)
                 
-                assert llm1 == llm2
-                # Should only create the LLM once due to caching
-                mock_chatbedrock.assert_called_once()
+                assert llm1 is mock_llm1
+                assert llm2 is mock_llm2
+                assert mock_chatbedrock.call_count == 2
 
     def test_get_llm_different_configs_create_different_instances(self):
         """Test get_llm creates different instances for different configs."""
@@ -122,14 +123,18 @@ class TestBedrockService:
             service = BedrockService()
             
             with patch.object(service, 'invoke', new_callable=AsyncMock) as mock_invoke:
-                mock_invoke.return_value = '{"test_field": "test_value"}'
+                mock_invoke.return_value = (
+                    '{"test_field": "test_value"}',
+                    {"model_id": "m", "input_tokens": 1, "output_tokens": 2},
+                )
                 
-                result = await service.invoke_with_json_output(
+                result, usage = await service.invoke_with_json_output(
                     "test system", 
                     "test prompt"
                 )
                 
                 assert result == {"test_field": "test_value"}
+                assert usage["model_id"] == "m"
                 mock_invoke.assert_called_once()
 
     @pytest.mark.asyncio
@@ -139,7 +144,10 @@ class TestBedrockService:
             service = BedrockService()
             
             with patch.object(service, 'invoke', new_callable=AsyncMock) as mock_invoke:
-                mock_invoke.return_value = 'invalid json'
+                mock_invoke.return_value = (
+                    "invalid json",
+                    {"model_id": "m", "input_tokens": 0, "output_tokens": 0},
+                )
                 
                 with pytest.raises(json.JSONDecodeError):
                     await service.invoke_with_json_output(
@@ -154,7 +162,10 @@ class TestBedrockService:
             service = BedrockService()
             
             with patch.object(service, 'invoke_with_json_output', new_callable=AsyncMock) as mock_invoke:
-                mock_invoke.return_value = {"test_field": "test_value"}
+                mock_invoke.return_value = (
+                    {"test_field": "test_value"},
+                    {"model_id": "m", "input_tokens": 1, "output_tokens": 2},
+                )
                 
                 result = await service.invoke_structured(
                     "test system", 
@@ -176,13 +187,14 @@ class TestBedrockService:
             mock_response.content = "test response"
             mock_llm.ainvoke.return_value = mock_response
             
-            with patch.object(service, 'get_llm', return_value=mock_llm):
-                result = await service.invoke(
+            with patch.object(service, '_new_chat_bedrock', return_value=mock_llm):
+                content, usage = await service.invoke(
                     "test system",
                     "test user message"
                 )
                 
-                assert result == "test response"
+                assert content == "test response"
+                assert usage["model_id"]
                 mock_llm.ainvoke.assert_called_once()
 
     def test_clear_cache(self):

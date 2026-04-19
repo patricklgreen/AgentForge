@@ -1,7 +1,7 @@
 """add cost_summary to project_runs
 
 Revision ID: a1b2c3d4e5f6
-Revises: 83fb61134cce
+Revises: 5587083393b0
 Create Date: 2026-04-17 12:00:00.000000
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "a1b2c3d4e5f6"
-down_revision = "83fb61134cce"
+down_revision = "5587083393b0"
 branch_labels = None
 depends_on = None
 

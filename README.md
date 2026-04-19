@@ -19,11 +19,11 @@ User Input    Requirements     Architecture     Code & Tests     DevOps & Docs  
 ```
 
 **Technology Stack:**
-- **Backend**: FastAPI + LangGraph + AWS Bedrock (Claude 3.5 Sonnet)
+- **Backend**: FastAPI + LangGraph + AWS Bedrock (model IDs configurable via env; see `.env.example`)
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS  
-- **Database**: PostgreSQL (RDS) + Redis (ElastiCache)
+- **Database**: PostgreSQL (RDS) + Redis (ElastiCache), Alembic migrations
 - **Infrastructure**: AWS ECS Fargate via Terraform
-- **AI Models**: Claude 3.5 Sonnet v2 (primary) + Claude 3.5 Haiku (fast operations)
+- **AI Models**: Primary and fast models set with `BEDROCK_MODEL_ID` / `BEDROCK_FAST_MODEL_ID`
 - **Auth**: JWT + API Keys with role-based access control
 - **Testing**: pytest + Vitest with 90%+ coverage requirement
 
@@ -49,14 +49,29 @@ make setup
 # Start everything
 make dev-up
 
-# Open http://localhost:3000
+# Apply database migrations (required after pulling — adds columns such as run cost summaries)
+docker compose exec backend alembic upgrade head
+
+# Frontend (Vite): http://localhost:5173  ·  API: http://localhost:8000
 ```
 
 **📧 Email Verification**: Email verification is automatically configured for local development. When you register users or click "Send Verification Email", check the Docker logs with `docker compose logs backend -f` to see verification links. See [Local Email Setup Guide](LOCAL_EMAIL_SETUP.md) for details.
 
+### AWS credentials (Bedrock & S3)
+
+Configure variables in `.env` (see `.env.example`):
+
+| Variable | Purpose |
+|----------|---------|
+| `AWS_REGION` | Bedrock/S3 region |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Long-lived IAM user keys, **or** the access key pair from an STS/assumed-role session |
+| `AWS_SESSION_TOKEN` | **Required** whenever you use **temporary** credentials (STS, assumed roles, `aws sso login`, short-lived env exports). Omit only for static IAM user keys. |
+
+The backend builds a **fresh Bedrock client for each model invocation** (no long-lived cached clients), retries transient errors (including expired signatures and dropped HTTP streams), and uses **non-streaming** invoke by default to reduce `Response ended prematurely` errors. If you still see signature or token errors, confirm the clock on the host/Docker VM is accurate and refresh credentials.
+
 ### Required AWS Permissions
 
-Your AWS credentials need access to Bedrock and S3:
+Your AWS credentials need access to Bedrock and S3 (adjust ARNs to match the models you enable in `.env`):
 ```json
 {
   "Effect": "Allow",
@@ -80,9 +95,7 @@ Your AWS credentials need access to Bedrock and S3:
 
 ### Enable Bedrock Model Access
 
-In AWS Console → Bedrock → Model Access → Request access for:
-- `Claude 3.5 Sonnet v2`
-- `Claude 3.5 Haiku`
+In AWS Console → Bedrock → Model Access → request access for the **exact model IDs** you set in `BEDROCK_MODEL_ID` and `BEDROCK_FAST_MODEL_ID` (examples in `.env.example` include newer Anthropic inference profiles).
 
 ## 🧪 Testing & Quality Assurance
 
@@ -168,7 +181,7 @@ make push ENVIRONMENT=prod
 ### CI/CD Pipeline Features
 - **Automated testing** with 90% coverage enforcement
 - **Security scanning** with Trivy vulnerability scanner
-- **Multi-stage deployment** with database migrations
+- **Multi-stage deployment** with database migrations (`alembic upgrade head` in deploy path)
 - **Blue-green deployment** with automatic rollback on failure
 - **Health checks** and smoke tests post-deployment
 - **OIDC authentication** for secure AWS access (no long-lived credentials)
@@ -210,6 +223,12 @@ make push ENVIRONMENT=prod
 - **Run history** with detailed event logs and timestamps
 - **Download packaging** of complete project archives
 - **Multi-user support** with project ownership controls
+
+### 💰 Cost tracking & analytics
+- **Per-run LLM cost** is recorded in the database (`project_runs.cost_summary`) as the pipeline runs, so totals stay visible after a build completes or fails (not only in ephemeral LangGraph state).
+- **Project detail** shows a compact **cost tracker** (aggregate spend, tokens, run count) with polling during active builds and cache refresh on WebSocket events (`agent_complete`, run finished).
+- **Cost Analytics** on the same page charts trends and per-agent breakdown (from persisted summaries).
+- Human-review **resume** paths merge prior segment cost so totals do not reset to zero after approving a review step.
 
 ### 🎨 Modern Frontend
 - **React 18** with TypeScript and modern hooks
@@ -279,7 +298,9 @@ agentforge/
 │   │   ├── models/                  # SQLAlchemy database models
 │   │   ├── schemas/                 # API request/response schemas
 │   │   ├── services/                # External service integrations
-│   │   │   ├── bedrock.py           # AWS Bedrock AI service
+│   │   │   ├── bedrock.py           # AWS Bedrock (fresh clients per invoke, retries)
+│   │   │   ├── cost_tracker.py      # Token/cost accumulation per run
+│   │   │   ├── run_cost_storage.py  # Persist cost snapshots to PostgreSQL
 │   │   │   ├── s3.py                # File storage
 │   │   │   └── websocket_manager.py # Real-time updates
 │   │   └── utils/                   # Shared utilities
@@ -300,7 +321,9 @@ agentforge/
 │   │   ├── components/              # Reusable UI components
 │   │   │   ├── Layout.tsx           # Application shell
 │   │   │   ├── ProtectedRoute.tsx   # Authentication guard
-│   │   │   └── AgentTimeline.tsx    # Agent progress display
+│   │   │   ├── AgentTimeline.tsx    # Agent pipeline progress
+│   │   │   ├── CostTracker.tsx      # Compact cost / tokens on project detail
+│   │   │   └── CostAnalytics.tsx    # Cost charts & breakdown
 │   │   ├── pages/                   # Application pages
 │   │   │   ├── Login.tsx            # Authentication
 │   │   │   ├── Register.tsx         # User registration
@@ -361,6 +384,8 @@ agentforge/
 - **Email Verification (Production)**: Configure AWS SES with domain verification and production access
 - **Infrastructure**: Use Terraform to deploy scalable AWS infrastructure with ECS, RDS, and SES
 - **Frontend Components**: Pre-built React components for email verification workflows
+- **Database**: Run `alembic upgrade head` (or `make migrate`) after pulling; cost data lives in `project_runs.cost_summary`
+- **AWS**: Set `AWS_SESSION_TOKEN` when using SSO/STS/temporary credentials; Bedrock model IDs must match Bedrock console model access
 
 ### Development Workflow Documentation
 Each markdown file includes:
@@ -395,6 +420,9 @@ make clean         # Clean build artifacts
 # Database operations  
 make migrate       # Run latest migrations
 make migrate-new   # Create new migration
+
+# Docker: same as `make migrate` — always run after schema changes
+# docker compose exec backend alembic upgrade head
 
 # Production builds
 make build         # Build Docker images locally

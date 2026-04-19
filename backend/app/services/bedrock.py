@@ -1,3 +1,5 @@
+import asyncio
+import inspect
 import json
 import logging
 from typing import Any, Optional, Type, TypeVar
@@ -15,77 +17,130 @@ settings = get_settings()
 
 T = TypeVar("T", bound=BaseModel)
 
+# Transient AWS / HTTP errors worth retrying with a fresh client
+_RETRYABLE_SUBSTRINGS = (
+    "InvalidSignatureException",
+    "Signature expired",
+    "SignatureDoesNotMatch",
+    "RequestExpired",
+    "ExpiredToken",
+    "ExpiredTokenException",
+    "CredentialsExpired",
+    "Response ended prematurely",
+    "IncompleteRead",
+)
+
+
+def _is_retryable_aws_error(exc: BaseException) -> bool:
+    s = str(exc)
+    if any(x in s for x in _RETRYABLE_SUBSTRINGS):
+        return True
+    t = type(exc).__name__
+    return t in ("ProtocolError", "IncompleteRead")
+
+
+def _bedrock_config() -> Config:
+    """Botocore config: keep connections alive and allow long model responses."""
+    params: dict[str, Any] = {
+        "region_name": settings.aws_region,
+        "retries": {"max_attempts": 5, "mode": "adaptive"},
+        "read_timeout": 300,
+        "connect_timeout": 60,
+        "signature_version": "v4",
+        "parameter_validation": False,
+    }
+    # tcp_keepalive reduces idle disconnects on long runs (botocore 1.29.0+)
+    sig = inspect.signature(Config.__init__)
+    if "tcp_keepalive" in sig.parameters:
+        params["tcp_keepalive"] = True
+    return Config(**params)
+
 
 class BedrockService:
-    """Service for interacting with AWS Bedrock (Claude models)."""
+    """Service for interacting with AWS Bedrock (Claude models).
+
+    **Credential / signature robustness**
+    - Passes ``aws_session_token`` when present (STS / assumed-role sessions).
+    - Builds a **new** ``ChatBedrock`` for each ``ainvoke`` so boto clients are
+      never reused across long pipeline gaps (avoids stale signatures).
+    - Retries transient signature and connection errors with backoff.
+    """
 
     def __init__(self) -> None:
-        self._client: Optional[Any] = None
+        # Legacy: tests and clear_cache() expect this attribute
         self._llm_cache: dict[str, ChatBedrock] = {}
+        self._client: Optional[Any] = None
 
     @property
     def client(self) -> Any:
+        """Rarely used; prefer ChatBedrock per invoke. Kept for compatibility."""
         if self._client is None:
-            config = Config(
-                region_name=settings.aws_region,
-                retries={"max_attempts": 3, "mode": "adaptive"},
-            )
             kwargs: dict[str, Any] = {
-                "config": config,
+                "config": Config(
+                    region_name=settings.aws_region,
+                    retries={"max_attempts": 3, "mode": "adaptive"},
+                ),
                 "region_name": settings.aws_region,
             }
-            if settings.aws_access_key_id:
+            if settings.aws_access_key_id and settings.aws_secret_access_key:
                 kwargs["aws_access_key_id"] = settings.aws_access_key_id
                 kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
+                if settings.aws_session_token:
+                    kwargs["aws_session_token"] = settings.aws_session_token
             self._client = boto3.client("bedrock-runtime", **kwargs)
         return self._client
+
+    def _chat_bedrock_kwargs(
+        self,
+        model_id: str,
+        temperature: float,
+        max_tokens: int,
+        streaming: bool,
+    ) -> dict[str, Any]:
+        kw: dict[str, Any] = {
+            "model_id": model_id,
+            "region_name": settings.aws_region,
+            "model_kwargs": {
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            },
+            "streaming": streaming,
+            "config": _bedrock_config(),
+        }
+        if settings.aws_access_key_id and settings.aws_secret_access_key:
+            kw["aws_access_key_id"] = settings.aws_access_key_id
+            kw["aws_secret_access_key"] = settings.aws_secret_access_key
+            if settings.aws_session_token:
+                kw["aws_session_token"] = settings.aws_session_token
+        return kw
+
+    def _new_chat_bedrock(
+        self,
+        model_id: str,
+        temperature: float,
+        max_tokens: int,
+        streaming: bool = False,
+    ) -> ChatBedrock:
+        """Fresh client + model — avoids stale SigV4 after long idle periods."""
+        return ChatBedrock(**self._chat_bedrock_kwargs(model_id, temperature, max_tokens, streaming))
 
     def get_llm(
         self,
         model_id: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 64000,  # Increased for Claude 4
-        streaming: bool = True,
+        max_tokens: int = 64000,
+        streaming: bool = False,
     ) -> ChatBedrock:
-        """Return a cached ChatBedrock instance for the specified configuration."""
-        resolved_model_id = model_id or settings.bedrock_model_id
-        cache_key = f"{resolved_model_id}:{temperature}:{max_tokens}"
+        """Return a **new** ChatBedrock (not cached) with the given configuration."""
+        resolved = model_id or settings.bedrock_model_id
+        return self._new_chat_bedrock(resolved, temperature, max_tokens, streaming)
 
-        if cache_key not in self._llm_cache:
-            # Configure boto3 client with retries and timeouts
-            from botocore.config import Config
-            
-            boto_config = Config(
-                region_name=settings.aws_region,
-                retries={
-                    'max_attempts': 5,  # Increased from 3 to 5 for better resilience
-                    'mode': 'adaptive'
-                },
-                read_timeout=300,  # 5 minutes for reading response
-                connect_timeout=60,  # 1 minute for initial connection
-                # Force signature v4 and ensure credentials are refreshed
-                signature_version='v4',
-                parameter_validation=False,  # Skip parameter validation for better performance
-            )
-            
-            self._llm_cache[cache_key] = ChatBedrock(
-                model_id=resolved_model_id,
-                region_name=settings.aws_region,
-                model_kwargs={
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                },
-                streaming=streaming,
-                config=boto_config,  # Add the config for better timeout handling
-            )
-        return self._llm_cache[cache_key]
-    
     def clear_cache(self) -> None:
-        """Clear the LLM cache to force recreation of clients with fresh credentials."""
+        """Drop cached boto clients so the next connection uses fresh credentials."""
         self._llm_cache.clear()
+        self._client = None
 
     def get_fast_llm(self) -> ChatBedrock:
-        """Return the faster / cheaper model instance (Haiku) for simple tasks."""
         return self.get_llm(
             model_id=settings.bedrock_fast_model_id,
             temperature=0.1,
@@ -98,33 +153,53 @@ class BedrockService:
         user_message: str,
         model_id: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 64000,  # Increased for Claude 4
+        max_tokens: int = 64000,
         use_fast_model: bool = False,
     ) -> tuple[str, dict]:
-        """Invoke the LLM and return the response with usage statistics."""
-        llm = (
-            self.get_fast_llm()
+        """Invoke the LLM; retries signature / connection failures with fresh clients."""
+        resolved_model_id = (
+            settings.bedrock_fast_model_id
             if use_fast_model
-            else self.get_llm(
-                model_id=model_id,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            else (model_id or settings.bedrock_model_id)
         )
         messages: list[BaseMessage] = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_message),
         ]
-        response = await llm.ainvoke(messages)
-        
-        # Extract usage information from the response
-        usage_info = {
-            'input_tokens': getattr(response, 'usage_metadata', {}).get('input_tokens', 0),
-            'output_tokens': getattr(response, 'usage_metadata', {}).get('output_tokens', 0),
-            'model_id': model_id or (settings.bedrock_fast_model_id if use_fast_model else settings.bedrock_model_id)
-        }
-        
-        return response.content, usage_info  # type: ignore[return-value]
+
+        max_rounds = 6
+        last_exc: Optional[BaseException] = None
+
+        for attempt in range(max_rounds):
+            try:
+                llm = self._new_chat_bedrock(
+                    resolved_model_id,
+                    temperature,
+                    max_tokens,
+                    streaming=False,
+                )
+                response = await llm.ainvoke(messages)
+
+                um = getattr(response, "usage_metadata", None) or {}
+                usage_info = {
+                    "input_tokens": um.get("input_tokens", 0),
+                    "output_tokens": um.get("output_tokens", 0),
+                    "model_id": resolved_model_id,
+                }
+                return response.content, usage_info  # type: ignore[return-value]
+
+            except Exception as exc:
+                if _is_retryable_aws_error(exc) and attempt < max_rounds - 1:
+                    logger.warning(
+                        "Bedrock invoke retry %s/%s after: %s",
+                        attempt + 1,
+                        max_rounds,
+                        exc,
+                    )
+                    self.clear_cache()
+                    await asyncio.sleep(min(2**attempt, 30))
+                    continue
+                raise
 
     async def invoke_with_json_output(
         self,
@@ -133,12 +208,6 @@ class BedrockService:
         model_id: Optional[str] = None,
         use_fast_model: bool = False,
     ) -> tuple[dict[str, Any], dict]:
-        """
-        Invoke the LLM and parse its response as JSON, returning usage info.
-
-        Strips markdown code fences if the model wraps the response in them,
-        which happens despite explicit instructions in some cases.
-        """
         json_instruction = (
             "\n\nCRITICAL: Respond with ONLY a valid JSON object. "
             "No markdown fences, no explanation, no text before or after the JSON."
@@ -159,12 +228,6 @@ class BedrockService:
         max_retries: int = 3,
         use_fast_model: bool = False,
     ) -> T:
-        """
-        Invoke the LLM and validate the JSON response against a Pydantic model.
-
-        Retries up to max_retries times, feeding validation errors back to the
-        model so it can self-correct.
-        """
         from pydantic import ValidationError
 
         last_error: Optional[Exception] = None
@@ -185,41 +248,32 @@ class BedrockService:
                         f"Previous attempt failed with: {exc}\n"
                         "Fix the JSON to match the required schema exactly."
                     )
-                    logger.warning(
-                        f"Structured output attempt {attempt + 1} failed: {exc}"
-                    )
+                    logger.warning("Structured output attempt %s failed: %s", attempt + 1, exc)
 
         raise last_error or RuntimeError("invoke_structured failed after all retries")
 
     @staticmethod
     def _parse_json_response(raw: str) -> dict[str, Any]:
-        """Strip optional markdown fences and parse JSON."""
         import re
-        
+
         clean = raw.strip()
-        
-        # Try to extract JSON from markdown code block
-        json_block_pattern = r'```(?:json)?\s*(.*?)\s*```'
+        json_block_pattern = r"```(?:json)?\s*(.*?)\s*```"
         match = re.search(json_block_pattern, clean, re.DOTALL)
         if match:
             clean = match.group(1).strip()
         else:
-            # Try to find JSON-like content with curly braces
-            json_pattern = r'\{.*\}'
+            json_pattern = r"\{.*\}"
             match = re.search(json_pattern, clean, re.DOTALL)
             if match:
                 clean = match.group(0).strip()
-            # If no special patterns found, use the original clean content
-        
+
         try:
             return json.loads(clean)  # type: ignore[return-value]
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing failed. Error: {e}")
-            logger.error(f"Raw response length: {len(raw)}")
-            logger.error(f"Cleaned response length: {len(clean)}")
-            logger.error(f"Last 200 chars of cleaned response: {clean[-200:]}")
+            logger.error("JSON parsing failed. Error: %s", e)
+            logger.error("Raw response length: %s", len(raw))
+            logger.error("Last 200 chars of cleaned response: %s", clean[-200:])
             raise
 
 
-# Module-level singleton consumed by all agents
 bedrock_service = BedrockService()
