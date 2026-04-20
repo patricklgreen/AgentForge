@@ -1,11 +1,24 @@
 import asyncio
 import os
 from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+# ─── Test database (must be set before importing app) ─────────────────────────
+# Background tasks in routes call get_db() which uses app.database.engine.
+# That engine is built from DATABASE_URL at import time, so it must match the
+# URL used by the test fixtures (otherwise workers hit localhost:5432 defaults).
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://agentforge:password@localhost:5433/agentforge_test",
+)
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+_sync = TEST_DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+os.environ.setdefault("DATABASE_SYNC_URL", _sync)
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -19,13 +32,16 @@ from app.database import Base, get_db
 # Import auth fixtures
 from tests.auth_fixtures import *  # noqa
 
-# ─── Test database ─────────────────────────────────────────────────────────────
-# Use a real PostgreSQL test DB to avoid SQLite dialect mismatches with
-# UUID columns, JSON columns, and PostgreSQL-specific enum types.
-TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql+asyncpg://agentforge:password@localhost:5433/agentforge_test",
-)
+
+@pytest.fixture(autouse=True)
+def _noop_background_run_agents():
+    """Starlette BackgroundTasks + asyncpg on a second pool hits event-loop issues in tests."""
+
+    async def _noop(*args, **kwargs):
+        return None
+
+    with patch("app.api.routes.projects._run_agents", _noop):
+        yield
 
 
 # ─── Event loop ────────────────────────────────────────────────────────────────
@@ -60,6 +76,23 @@ async def test_engine():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _truncate_public_tables(test_engine):
+    """
+    Routes call commit() on the overridden session, so rows persist in PostgreSQL
+    across tests. Truncate before each test so fixtures and assertions see a clean DB.
+    """
+    async with test_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "TRUNCATE TABLE run_events, artifacts, project_runs, projects, "
+                "email_verification_tokens, refresh_tokens, api_keys, users "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
+    yield
 
 
 @pytest_asyncio.fixture

@@ -18,7 +18,7 @@ const makeEvent = (
 });
 
 describe("AgentTimeline", () => {
-  it("renders all ten pipeline steps including validation", () => {
+  it("renders all eleven pipeline steps including validation and build validation", () => {
     render(<AgentTimeline events={[]} currentStep={undefined} runStatus={undefined} />);
 
     expect(screen.getByText("Requirements Analysis")).toBeInTheDocument();
@@ -27,6 +27,7 @@ describe("AgentTimeline", () => {
     expect(screen.getByText("Code Validation")).toBeInTheDocument();
     expect(screen.getByText("Package Validation")).toBeInTheDocument(); // ← new step
     expect(screen.getByText("Test Writing")).toBeInTheDocument();
+    expect(screen.getByText("Build Validation")).toBeInTheDocument();
     expect(screen.getByText("Code Review")).toBeInTheDocument();
     expect(screen.getByText("DevOps Setup")).toBeInTheDocument();
     expect(screen.getAllByText("Documentation")).toHaveLength(2); // Appears both as step label and agent name
@@ -39,6 +40,7 @@ describe("AgentTimeline", () => {
     expect(screen.getByText("Validator")).toBeInTheDocument();
     expect(screen.getByText("PackageValidator")).toBeInTheDocument(); // ← new agent
     expect(screen.getByText("TestWriter")).toBeInTheDocument();
+    expect(screen.getByText("BuildValidator")).toBeInTheDocument();
   });
 
   it("shows Awaiting Review badge when interrupt fires for a step", () => {

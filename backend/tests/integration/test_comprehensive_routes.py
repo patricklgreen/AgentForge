@@ -93,12 +93,14 @@ class TestAuthRoutes:
         response = await client.get("/api/v1/auth/me")
         assert response.status_code == 401
 
-    async def test_send_verification_email(self, client: AsyncClient, auth_headers, mock_email_service):
+    async def test_send_verification_email(
+        self, client: AsyncClient, auth_headers, mock_email_service, test_user
+    ):
         """Test sending verification email."""
         response = await client.post(
             "/api/v1/auth/verify/send",
-            json={"email": "test@example.com"},
-            headers=auth_headers
+            json={"email": test_user.email},
+            headers=auth_headers,
         )
         assert response.status_code == 200
         
@@ -148,11 +150,12 @@ class TestAuthRoutes:
         )
         assert response.status_code == 401
 
-    async def test_logout(self, client: AsyncClient, auth_headers):
-        """Test user logout."""
+    async def test_logout(self, client: AsyncClient, auth_headers, test_refresh_token):
+        """Test user logout (requires refresh token body to revoke)."""
         response = await client.post(
             "/api/v1/auth/logout",
-            headers=auth_headers
+            headers=auth_headers,
+            json={"refresh_token": test_refresh_token._test_token_value},
         )
         assert response.status_code == 200
 
@@ -177,7 +180,7 @@ class TestProjectRoutes:
     
     async def test_create_project_success(self, client: AsyncClient, auth_headers, sample_project_data, mock_orchestrator):
         """Test successful project creation."""
-        with patch("app.api.routes.projects.orchestrator_service", mock_orchestrator):
+        with patch("app.api.routes.projects.get_orchestrator", return_value=mock_orchestrator):
             response = await client.post(
                 "/api/v1/projects/",
                 json=sample_project_data,
@@ -200,8 +203,7 @@ class TestProjectRoutes:
         assert response.status_code == 200
         
         data = response.json()
-        assert "items" in data
-        assert "total" in data
+        assert isinstance(data, list)
 
     async def test_get_project_success(self, client: AsyncClient, auth_headers, db_session, test_user):
         """Test getting project details."""
@@ -216,7 +218,7 @@ class TestProjectRoutes:
             requirements="Test requirements",
             target_language="Python",
             target_framework="FastAPI",
-            status=ProjectStatus.CREATED
+            status=ProjectStatus.PENDING,
         )
         db_session.add(project)
         await db_session.commit()
@@ -245,15 +247,15 @@ class TestProjectRoutes:
             requirements="Test requirements",
             target_language="Python",
             target_framework="FastAPI",
-            status=ProjectStatus.CREATED
+            status=ProjectStatus.PENDING,
         )
         db_session.add(project)
         await db_session.commit()
         
-        with patch("app.api.routes.projects.orchestrator_service", mock_orchestrator):
+        with patch("app.api.routes.projects.get_orchestrator", return_value=mock_orchestrator):
             response = await client.post(
-                f"/api/v1/projects/{project.id}/runs/",
-                headers=auth_headers
+                f"/api/v1/projects/{project.id}/runs",
+                headers=auth_headers,
             )
             assert response.status_code == 201
 
@@ -273,18 +275,19 @@ class TestArtifactRoutes:
     async def test_get_project_artifacts_unauthorized(self, client: AsyncClient):
         """Test getting project artifacts without authentication."""
         fake_id = uuid.uuid4()
-        response = await client.get(f"/api/v1/artifacts/projects/{fake_id}")
+        response = await client.get(f"/api/v1/artifacts/project/{fake_id}")
         assert response.status_code == 401
 
     async def test_get_project_artifacts_not_found(self, client: AsyncClient, auth_headers):
         """Test getting artifacts for non-existent project."""
         fake_id = uuid.uuid4()
-        response = await client.get(f"/api/v1/artifacts/projects/{fake_id}", headers=auth_headers)
+        response = await client.get(f"/api/v1/artifacts/project/{fake_id}", headers=auth_headers)
         assert response.status_code == 404
 
     async def test_get_artifact_content_unauthorized(self, client: AsyncClient):
         """Test getting artifact content without authentication."""
-        response = await client.get("/api/v1/artifacts/content/fake-key")
+        fake_artifact_id = str(uuid.uuid4())
+        response = await client.get(f"/api/v1/artifacts/{fake_artifact_id}/content")
         assert response.status_code == 401
 
 

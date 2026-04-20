@@ -324,23 +324,25 @@ class TestEmailServiceIntegration:
     @pytest.mark.asyncio
     async def test_email_service_called_during_user_creation(self, db_session):
         """Test that email service is called when creating a user."""
+        import uuid
+
         from app.services.auth import auth_service
         from app.schemas.auth import UserCreate
-        
-        with patch.object(auth_service, 'email_service') as mock_email_service:
+
+        uid = uuid.uuid4().hex[:10]
+        with patch.object(auth_service, "email_service") as mock_email_service:
             mock_email_service.send_verification_email = AsyncMock(return_value=True)
-            
+
             user_data = UserCreate(
-                email="test@example.com",
-                username="testuser",
+                email=f"create-{uid}@example.com",
+                username=f"user-{uid}",
                 password="TestPassword123!",
-                full_name="Test User"
+                full_name="Test User",
             )
-            
+
             user = await auth_service.create_user(db_session, user_data)
-            
-            # Verify email service was called
+
             mock_email_service.send_verification_email.assert_called_once()
             args = mock_email_service.send_verification_email.call_args
-            assert args[1]["to_email"] == "test@example.com"
+            assert args[1]["to_email"] == user_data.email
             assert "verify-email?token=" in args[1]["verification_url"]

@@ -22,17 +22,19 @@ class TestCostTracker:
     def test_track_bedrock_call(self):
         """Test recording a Bedrock call."""
         tracker = CostTracker("test-run-123")
-        
-        # Record a call with known pricing
+        model_id = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        pricing = BEDROCK_PRICING[model_id]
+
         cost = tracker.record(
             agent="TestAgent",
-            model_id="anthropic.claude-3-5-haiku-20241022-v1:0",
+            model_id=model_id,
             input_tokens=1000,
-            output_tokens=500
+            output_tokens=500,
         )
-        
-        # Check cost calculation (1000 * 0.0008/1000 + 500 * 0.004/1000)
-        expected_cost = 1.0 * 0.0008 + 0.5 * 0.004  # 0.0008 + 0.002 = 0.0028
+
+        expected_cost = (
+            1000 / 1_000 * pricing["input"] + 500 / 1_000 * pricing["output"]
+        )
         assert cost == expected_cost
         assert tracker.total_input_tokens == 1000
         assert tracker.total_output_tokens == 500
@@ -62,9 +64,13 @@ class TestCostTracker:
         """Test getting cost breakdown via summary method."""
         tracker = CostTracker("test-run-123")
         
-        # Record multiple calls
-        tracker.record("Agent1", "anthropic.claude-3-5-haiku-20241022-v1:0", 1000, 500)
-        tracker.record("Agent2", "anthropic.claude-3-5-sonnet-20241022-v2:0", 2000, 1000)
+        tracker.record(
+            "Agent1",
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            1000,
+            500,
+        )
+        tracker.record("Agent2", "default", 2000, 1000)
         
         summary = tracker.summary()
         
@@ -112,20 +118,19 @@ class TestCostTracker:
 
     def test_bedrock_pricing_models(self):
         """Test different Bedrock model pricing."""
+        mid_haiku = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        p_h = BEDROCK_PRICING[mid_haiku]
         tracker = CostTracker("test-run-123")
-        
-        # Test Haiku pricing
-        haiku_cost = tracker.record("Agent1", "anthropic.claude-3-5-haiku-20241022-v1:0", 1000, 1000)
-        haiku_expected = 1.0 * 0.0008 + 1.0 * 0.004  # 0.0048
+        haiku_cost = tracker.record("Agent1", mid_haiku, 1000, 1000)
+        haiku_expected = 1.0 * p_h["input"] + 1.0 * p_h["output"]
         assert abs(haiku_cost - haiku_expected) < 0.000001
-        
-        # Reset for next test
+
         tracker = CostTracker("test-run-456")
-        
-        # Test Sonnet pricing  
-        sonnet_cost = tracker.record("Agent2", "anthropic.claude-3-5-sonnet-20241022-v2:0", 1000, 1000)
-        sonnet_expected = 1.0 * 0.003 + 1.0 * 0.015  # 0.018
-        assert abs(sonnet_cost - sonnet_expected) < 0.000001
+        mid_opus = "us.anthropic.claude-opus-4-6-v1"
+        p_o = BEDROCK_PRICING[mid_opus]
+        opus_cost = tracker.record("Agent2", mid_opus, 1000, 1000)
+        opus_expected = 1.0 * p_o["input"] + 1.0 * p_o["output"]
+        assert abs(opus_cost - opus_expected) < 0.000001
 
     def test_multiple_operations_aggregation(self):
         """Test multiple operations are properly aggregated."""

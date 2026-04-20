@@ -151,15 +151,35 @@ class TestValidationAgent:
 class TestDevOpsAgent:
     @pytest.mark.asyncio
     async def test_execute_generates_devops_files(self, base_state):
+        from app.agents import devops_agent as devops_mod
         from app.agents.devops_agent import DevOpsAgent
+
         agent = DevOpsAgent()
-        
         mock_response = Mock()
         mock_response.content = "# Generated Dockerfile\nFROM python:3.11"
-        
-        with patch.object(agent, '_invoke_llm', new_callable=AsyncMock) as mock_llm:
+
+        with (
+            patch.object(
+                devops_mod.directive_config_generator,
+                "generate_project_directive",
+                new_callable=AsyncMock,
+                return_value="# Project",
+            ),
+            patch.object(
+                devops_mod.directive_config_generator,
+                "generate_agents_md",
+                new_callable=AsyncMock,
+                return_value="# Agents",
+            ),
+            patch.object(
+                devops_mod.directive_config_generator,
+                "generate_taskfile_yml",
+                new_callable=AsyncMock,
+                return_value="version: '3'",
+            ),
+            patch.object(agent, "_invoke_llm", new_callable=AsyncMock) as mock_llm,
+        ):
             mock_llm.return_value = mock_response
-            
             state = {**base_state}
             result = await agent.execute(state)
 

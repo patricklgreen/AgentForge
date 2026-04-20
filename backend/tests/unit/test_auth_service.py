@@ -276,28 +276,30 @@ class TestAuthService:
         assert auth_service.verify_password(password, hash2)
 
     @pytest.mark.asyncio
-    async def test_create_user(self, db_session, mock_email_service):
+    async def test_create_user(self, db_session):
         """Test user creation."""
+        from unittest.mock import AsyncMock
         from app.schemas.auth import UserCreate
-        
+
         user_data = UserCreate(
             email="newuser@example.com",
             username="newuser",
             password="TestPassword123!",
-            full_name="New User"
+            full_name="New User",
         )
-        
-        user = await auth_service.create_user(db_session, user_data)
-        
+
+        mock_send = AsyncMock(return_value=True)
+        with patch.object(auth_service, "email_service") as mock_es:
+            mock_es.send_verification_email = mock_send
+            user = await auth_service.create_user(db_session, user_data)
+
         assert user.email == user_data.email
         assert user.username == user_data.username
         assert user.full_name == user_data.full_name
         assert user.is_active is True
         assert user.is_verified is False
         assert user.role == UserRole.USER
-        
-        # Verify email service was called
-        mock_email_service.send_verification_email.assert_called_once()
+        mock_send.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_authenticate_user_success(self, db_session, test_user):

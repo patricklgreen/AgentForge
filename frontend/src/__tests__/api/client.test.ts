@@ -161,6 +161,15 @@ describe("RunWebSocket", () => {
     expect(MockWebSocket).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
+
+  it("isConnected reflects WebSocket readyState", async () => {
+    const { RunWebSocket } = await import("../../api/client");
+    const ws = new RunWebSocket("run-id");
+    expect(ws.isConnected).toBe(false);
+    ws.connect();
+    mockWsInstance.readyState = WebSocket.OPEN;
+    expect(ws.isConnected).toBe(true);
+  });
 });
 
 // ─── projectsApi ─────────────────────────────────────────────────────────────

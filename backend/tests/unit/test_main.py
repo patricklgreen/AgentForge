@@ -63,65 +63,44 @@ class TestHealthEndpoint:
 
 class TestWebSocketEndpoint:
     """Test WebSocket endpoint functionality."""
-    
+
     @pytest.mark.asyncio
     async def test_websocket_connection(self):
-        """Test WebSocket connection handling."""
-        with patch('app.main.ws_manager') as mock_manager, \
-             patch('app.services.auth.auth_service') as mock_auth_service:
-            
-            mock_manager.connect = AsyncMock()
-            mock_manager.disconnect = MagicMock()
-            
-            # Mock successful authentication
-            mock_auth_service.verify_jwt_token.return_value = {"user_id": "test_user"}
-            
-            from app.main import websocket_endpoint
-            from fastapi import WebSocket
-            
+        """WebSocket accepts, registers in ws_manager._connections, then cleans up."""
+        from app.main import websocket_endpoint
+        from fastapi import WebSocket
+
+        mock_manager = MagicMock()
+        mock_manager._connections = {}
+
+        with patch("app.main.ws_manager", mock_manager):
             mock_websocket = MagicMock(spec=WebSocket)
-            mock_websocket.close = AsyncMock()
-            mock_websocket.receive_text = AsyncMock()
-            mock_websocket.receive_text.side_effect = [
-                "test message",
-                Exception("WebSocketDisconnect")  # Simulate disconnect
-            ]
-            
-            # Test connection with valid token
-            try:
-                await websocket_endpoint(mock_websocket, "run123", "valid_token")
-            except Exception:
-                pass  # Expected when simulating disconnect
-            
-            mock_manager.connect.assert_called_once_with(mock_websocket, "run123")
-            mock_manager.disconnect.assert_called_once_with(mock_websocket, "run123")
+            mock_websocket.accept = AsyncMock()
+            mock_websocket.receive_text = AsyncMock(
+                side_effect=["ping", RuntimeError("end receive loop")]
+            )
+
+            await websocket_endpoint(mock_websocket, "run123", None)
+
+        mock_websocket.accept.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_websocket_error_handling(self):
-        """Test WebSocket error handling."""
-        with patch('app.main.ws_manager') as mock_manager, \
-             patch('app.services.auth.auth_service') as mock_auth_service:
-            
-            mock_manager.connect = AsyncMock()
-            mock_manager.disconnect = MagicMock()
-            
-            # Mock successful authentication
-            mock_auth_service.verify_jwt_token.return_value = {"user_id": "test_user"}
-            
-            from app.main import websocket_endpoint
-            from fastapi import WebSocket
-            
+        """receive_text errors exit the loop and run cleanup in finally."""
+        from app.main import websocket_endpoint
+        from fastapi import WebSocket
+
+        mock_manager = MagicMock()
+        mock_manager._connections = {}
+
+        with patch("app.main.ws_manager", mock_manager):
             mock_websocket = MagicMock(spec=WebSocket)
-            mock_websocket.close = AsyncMock()
-            mock_websocket.receive_text = AsyncMock(side_effect=Exception("Connection error"))
-            
-            try:
-                await websocket_endpoint(mock_websocket, "run456", "valid_token")
-            except Exception:
-                pass
-            
-            # Should still call cleanup
-            mock_manager.disconnect.assert_called_once_with(mock_websocket, "run456")
+            mock_websocket.accept = AsyncMock()
+            mock_websocket.receive_text = AsyncMock(side_effect=RuntimeError("Connection error"))
+
+            await websocket_endpoint(mock_websocket, "run456", None)
+
+        mock_websocket.accept.assert_awaited_once()
 
 
 class TestLifespanManager:

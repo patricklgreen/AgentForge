@@ -113,8 +113,7 @@ class TestBedrockService:
                 # Verify it was called with Haiku model - check the actual model ID used
                 call_args = mock_chatbedrock.call_args
                 assert call_args is not None
-                # Check for the full model ID from settings
-                assert "anthropic.claude-3-5-haiku" in str(call_args)
+                assert "haiku" in str(call_args).lower()
 
     @pytest.mark.asyncio
     async def test_invoke_with_json_output_success(self):

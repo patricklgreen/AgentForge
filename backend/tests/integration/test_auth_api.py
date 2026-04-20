@@ -69,8 +69,8 @@ class TestAuthenticationEndpoints:
         
         response = await client.post("/api/v1/auth/register", json=user_data)
         
-        assert response.status_code == 409
-        assert "username already taken" in response.json()["detail"].lower()
+        assert response.status_code == 400
+        assert "already exists" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_register_weak_password_fails(self, client: AsyncClient):
@@ -118,7 +118,7 @@ class TestAuthenticationEndpoints:
         )
         
         assert response.status_code == 401
-        assert "invalid credentials" in response.json()["detail"].lower()
+        assert "invalid email or password" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_login_invalid_password_fails(self, client: AsyncClient, test_user: User):
@@ -129,7 +129,7 @@ class TestAuthenticationEndpoints:
         )
         
         assert response.status_code == 401
-        assert "invalid credentials" in response.json()["detail"].lower()
+        assert "invalid email or password" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_login_inactive_user_fails(self, client: AsyncClient, inactive_user: User):
@@ -140,7 +140,8 @@ class TestAuthenticationEndpoints:
         )
         
         assert response.status_code == 401
-        assert "account is disabled" in response.json()["detail"].lower()
+        # Inactive users are excluded from authenticate_user(); same message as wrong password
+        assert "invalid email or password" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_get_current_user_success(self, client: AsyncClient, test_user: User, auth_headers: dict):
@@ -179,7 +180,8 @@ class TestAuthenticationEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "access_token" in data
-        assert "refresh_token" in data
+        # TokenResponse from /auth/refresh is access-only (no rotated refresh token)
+        assert "token_type" in data
 
     @pytest.mark.asyncio
     async def test_api_key_authentication(self, client: AsyncClient, test_api_key: APIKey):

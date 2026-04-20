@@ -22,16 +22,17 @@ const createEvent = (
 
 describe("AgentTimeline Comprehensive Tests", () => {
   describe("Pipeline Steps", () => {
-    it("should render all ten pipeline steps", () => {
+    it("should render all eleven pipeline steps", () => {
       render(<AgentTimeline events={[]} currentStep={undefined} runStatus={undefined} />);
 
-      // All 10 steps should be visible
+      // All 11 steps should be visible
       expect(screen.getByText("Requirements Analysis")).toBeInTheDocument();
       expect(screen.getByText("Architecture Design")).toBeInTheDocument();
       expect(screen.getByText("Code Generation")).toBeInTheDocument();
       expect(screen.getByText("Code Validation")).toBeInTheDocument();
       expect(screen.getByText("Package Validation")).toBeInTheDocument(); // New step
       expect(screen.getByText("Test Writing")).toBeInTheDocument();
+      expect(screen.getByText("Build Validation")).toBeInTheDocument();
       expect(screen.getByText("Code Review")).toBeInTheDocument();
       expect(screen.getByText("DevOps Setup")).toBeInTheDocument();
       // Documentation step (may appear multiple times in the component)
@@ -48,6 +49,7 @@ describe("AgentTimeline Comprehensive Tests", () => {
       expect(screen.getByText("Validator")).toBeInTheDocument();
       expect(screen.getByText("PackageValidator")).toBeInTheDocument(); // New agent
       expect(screen.getByText("TestWriter")).toBeInTheDocument();
+      expect(screen.getByText("BuildValidator")).toBeInTheDocument();
       expect(screen.getByText("CodeReviewer")).toBeInTheDocument();
       expect(screen.getByText("DevOps")).toBeInTheDocument();
       // Documentation agent name matches the label, so expect 2 occurrences
@@ -61,15 +63,19 @@ describe("AgentTimeline Comprehensive Tests", () => {
       // Check step order by querying for step headers specifically (avoid duplicates)
       const stepHeaders = screen.getAllByRole('heading', { level: 4 });
       
-      expect(stepHeaders).toHaveLength(10);
-      // Package Validation should come after Code Validation and before Test Writing
+      expect(stepHeaders).toHaveLength(11);
+      // Package Validation → Test Writing → Build Validation → Code Review
       const stepTexts = stepHeaders.map(el => el.textContent);
       const codeValidationIndex = stepTexts.indexOf("Code Validation");
       const packageValidationIndex = stepTexts.indexOf("Package Validation");
       const testWritingIndex = stepTexts.indexOf("Test Writing");
+      const buildValidationIndex = stepTexts.indexOf("Build Validation");
+      const codeReviewIndex = stepTexts.indexOf("Code Review");
       
       expect(packageValidationIndex).toBeGreaterThan(codeValidationIndex);
       expect(testWritingIndex).toBeGreaterThan(packageValidationIndex);
+      expect(buildValidationIndex).toBeGreaterThan(testWritingIndex);
+      expect(codeReviewIndex).toBeGreaterThan(buildValidationIndex);
     });
   });
 
@@ -306,7 +312,7 @@ describe("AgentTimeline Comprehensive Tests", () => {
       expect(screen.getByText("Code Generation")).toBeInTheDocument();
       // All steps should be visible regardless of their individual icon states
       const allSteps = screen.getAllByRole('heading', { level: 4 });
-      expect(allSteps.length).toBe(10);
+      expect(allSteps.length).toBe(11);
     });
 
     it("should show pending steps correctly", () => {

@@ -1,6 +1,7 @@
 """
 Authentication fixtures and utilities for testing.
 """
+import hashlib
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -15,11 +16,12 @@ from app.services.auth import auth_service
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
-    """Create a test user."""
+    """Create a test user (unique email so committed rows do not collide across tests)."""
+    uid = uuid.uuid4().hex[:12]
     user = User(
         id=uuid.uuid4(),
-        email="test@example.com",
-        username="testuser",
+        email=f"test-{uid}@example.com",
+        username=f"testuser-{uid}",
         hashed_password=auth_service.hash_password("testpassword123"),
         full_name="Test User",
         role=UserRole.USER,
@@ -37,10 +39,11 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def admin_user(db_session: AsyncSession) -> User:
     """Create an admin test user."""
+    uid = uuid.uuid4().hex[:12]
     user = User(
         id=uuid.uuid4(),
-        email="admin@example.com",
-        username="admin",
+        email=f"admin-{uid}@example.com",
+        username=f"admin-{uid}",
         hashed_password=auth_service.hash_password("adminpassword123"),
         full_name="Admin User",
         role=UserRole.ADMIN,
@@ -58,10 +61,11 @@ async def admin_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def inactive_user(db_session: AsyncSession) -> User:
     """Create an inactive test user."""
+    uid = uuid.uuid4().hex[:12]
     user = User(
         id=uuid.uuid4(),
-        email="inactive@example.com",
-        username="inactiveuser",
+        email=f"inactive-{uid}@example.com",
+        username=f"inactiveuser-{uid}",
         hashed_password=auth_service.hash_password("password123"),
         role=UserRole.USER,
         is_active=False,
@@ -83,7 +87,7 @@ async def test_api_key(db_session: AsyncSession, test_user: User) -> APIKey:
         id=uuid.uuid4(),
         user_id=test_user.id,
         name="Test API Key",
-        key_hash=auth_service.hash_password(key_value),
+        key_hash=hashlib.sha256(key_value.encode()).hexdigest(),
         key_prefix="test-key",
         is_active=True,
         created_at=datetime.now(timezone.utc),
@@ -103,7 +107,7 @@ async def test_refresh_token(db_session: AsyncSession, test_user: User) -> Refre
     refresh_token = RefreshToken(
         id=uuid.uuid4(),
         user_id=test_user.id,
-        token_hash=auth_service.hash_password(token_value),
+        token_hash=hashlib.sha256(token_value.encode()).hexdigest(),
         is_active=True,
         expires_at=datetime.now(timezone.utc) + timedelta(days=7),
         created_at=datetime.now(timezone.utc),

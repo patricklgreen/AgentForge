@@ -9,9 +9,11 @@ class TestAgentOrchestrator:
 
     @pytest.fixture
     def orchestrator(self):
-        """Create orchestrator instance for testing.""" 
-        with patch('app.agents.orchestrator.AsyncPostgresSaver'):
-            return AgentOrchestrator()
+        """Create orchestrator instance for testing."""
+        with patch("app.agents.orchestrator.AsyncPostgresSaver"):
+            return AgentOrchestrator(
+                db_connection_string="postgresql://test:test@localhost:5432/agentforge_test"
+            )
 
     @pytest.fixture
     def sample_state(self):
@@ -30,17 +32,18 @@ class TestAgentOrchestrator:
     @pytest.mark.asyncio
     async def test_orchestrator_initialization(self, orchestrator):
         """Test that orchestrator initializes all agents correctly."""
-        assert hasattr(orchestrator, 'requirements_analyst')
-        assert hasattr(orchestrator, 'code_generator')
-        assert hasattr(orchestrator, 'validation_agent')
-        assert hasattr(orchestrator, 'package_validator')  # New agent
-        assert hasattr(orchestrator, 'test_writer')
-        assert hasattr(orchestrator, 'code_reviewer')
-        assert hasattr(orchestrator, 'devops_agent')
-        assert hasattr(orchestrator, 'documentation_agent')
-        
-        # Check that graph exists
-        assert hasattr(orchestrator, 'graph')
+        assert hasattr(orchestrator, "requirements_agent")
+        assert hasattr(orchestrator, "code_generator")
+        assert hasattr(orchestrator, "validation_agent")
+        assert hasattr(orchestrator, "package_validator")
+        assert hasattr(orchestrator, "test_writer")
+        assert hasattr(orchestrator, "build_validator")
+        assert hasattr(orchestrator, "code_reviewer")
+        assert hasattr(orchestrator, "devops_agent")
+        assert hasattr(orchestrator, "documentation_agent")
+
+        assert hasattr(orchestrator, "_graph")
+        assert orchestrator._graph is None  # compiled in initialize()
 
     @pytest.mark.asyncio 
     async def test_package_validation_node_execution(self, orchestrator, sample_state):
