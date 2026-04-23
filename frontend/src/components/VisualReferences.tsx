@@ -53,12 +53,20 @@ export const VisualReferences: React.FC<VisualReferencesProps> = ({
     uploadMutation.mutate({ file });
   };
 
+  const normalizeUrl = (raw: string): string => {
+    const s = raw.trim();
+    if (!s) return s;
+    if (/^https?:\/\//i.test(s)) return s;
+    if (/^(localhost|127\.0\.0\.1)/i.test(s)) return `http://${s}`;
+    return `https://${s}`;
+  };
+
   const handleUrlSubmit = () => {
     if (!urlInput.trim()) return;
     
     const newReference: VisualReference = {
       type: 'url',
-      url: urlInput.trim(),
+      url: normalizeUrl(urlInput),
       description: urlDescription.trim() || undefined,
     };
     

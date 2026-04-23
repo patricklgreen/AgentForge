@@ -94,6 +94,9 @@ api.interceptors.response.use(
         error.response.data?.message ??
         `HTTP ${error.response.status}`;
       error.message = typeof detail === "string" ? detail : JSON.stringify(detail);
+    } else if (error.request && !error.message) {
+      error.message =
+        "No response from the API. Check that the backend is running and VITE_API_URL matches it.";
     }
     return Promise.reject(error);
   }

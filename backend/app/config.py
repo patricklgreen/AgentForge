@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     bedrock_fast_model_id: str = "anthropic.claude-3-5-haiku-20241022-v1:0"
     bedrock_max_tokens: int = 64000
     bedrock_temperature: float = 0.1
+    # Total invoke attempts (first try + retries) for transient errors (network, throttling, etc.)
+    bedrock_invoke_max_attempts: int = Field(default=6, ge=1, le=32)
 
     # S3
     s3_bucket_name: str = "agentforge-artifacts"

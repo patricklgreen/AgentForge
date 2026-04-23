@@ -23,8 +23,8 @@ langchain-core
 langgraph
 langgraph-checkpoint-postgres
 
-# Redis
-redis[asyncio]
+# Redis (async API is included; the old redis[asyncio] extra was removed in redis 5+)
+redis
 
 # Auth
 python-jose[cryptography]

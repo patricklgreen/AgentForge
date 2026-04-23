@@ -3,6 +3,7 @@ Unit tests for Bedrock service.
 """
 import json
 import pytest
+from botocore.exceptions import EndpointConnectionError
 from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.bedrock import BedrockService
 from langchain_aws import ChatBedrock
@@ -195,6 +196,38 @@ class TestBedrockService:
                 assert content == "test response"
                 assert usage["model_id"]
                 mock_llm.ainvoke.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_invoke_retries_on_endpoint_connection_error(self):
+        """Transient disconnect / offline: retry then succeed."""
+        with patch("boto3.client"):
+            service = BedrockService()
+            mock_llm = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.content = "recovered"
+            err = EndpointConnectionError(endpoint_url="https://bedrock-runtime.us-east-1.amazonaws.com")
+            mock_llm.ainvoke.side_effect = [err, mock_response]
+            with patch.object(service, "_new_chat_bedrock", return_value=mock_llm):
+                with patch("app.services.bedrock.asyncio.sleep", new_callable=AsyncMock):
+                    content, _ = await service.invoke("s", "u")
+            assert content == "recovered"
+            assert mock_llm.ainvoke.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_invoke_retries_on_connection_message(self):
+        """String form of endpoint errors (wrapped exceptions) still retries."""
+        with patch("boto3.client"):
+            service = BedrockService()
+            mock_llm = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.content = "ok"
+            msg = 'Could not connect to the endpoint URL: "https://bedrock-runtime.us-east-1.amazonaws.com/..."'
+            mock_llm.ainvoke.side_effect = [Exception(msg), mock_response]
+            with patch.object(service, "_new_chat_bedrock", return_value=mock_llm):
+                with patch("app.services.bedrock.asyncio.sleep", new_callable=AsyncMock):
+                    content, _ = await service.invoke("s", "u")
+            assert content == "ok"
+            assert mock_llm.ainvoke.call_count == 2
 
     def test_clear_cache(self):
         """Test clear_cache method."""

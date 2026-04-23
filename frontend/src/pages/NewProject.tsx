@@ -5,6 +5,19 @@ import { ArrowLeft, Loader2, Wand2, AlertCircle } from "lucide-react";
 import { projectsApi } from "../api/client";
 import type { ProjectCreate, VisualReference } from "../types/index";
 import VisualReferences from "../components/VisualReferences";
+import { useToast } from "../components/Toast";
+
+function normalizeProjectCreatePayload(data: ProjectCreate): ProjectCreate {
+  const fw = data.target_framework?.trim();
+  return {
+    ...data,
+    target_framework: fw || undefined,
+    visual_references:
+      data.visual_references && data.visual_references.length > 0
+        ? data.visual_references
+        : undefined,
+  };
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -81,6 +94,7 @@ const PIPELINE_STEPS = [
 export function NewProject() {
   const navigate     = useNavigate();
   const queryClient  = useQueryClient();
+  const { warning: showWarningToast, ToastContainer } = useToast();
 
   const [form, setForm] = useState<ProjectCreate>({
     name:             "",
@@ -93,15 +107,27 @@ export function NewProject() {
 
   const mutation = useMutation({
     mutationFn: async (data: ProjectCreate) => {
-      // First create the project
-      const project = await projectsApi.create(data);
-      // Then immediately start the build
-      await projectsApi.startRun(project.id);
-      return project;
+      const payload = normalizeProjectCreatePayload(data);
+      const project = await projectsApi.create(payload);
+      try {
+        await projectsApi.startRun(project.id);
+        return { project, runStarted: true as const };
+      } catch (runErr) {
+        const msg =
+          runErr instanceof Error ? runErr.message : "Could not start the agent run.";
+        return { project, runStarted: false as const, runError: msg };
+      }
     },
-    onSuccess: (project) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate(`/projects/${project.id}`);
+      navigate(`/projects/${result.project.id}`);
+      if (!result.runStarted) {
+        showWarningToast(
+          "Build did not start automatically",
+          result.runError ??
+            "Open the project and use “Start run” when the API is ready."
+        );
+      }
     },
   });
 
@@ -126,6 +152,7 @@ export function NewProject() {
 
   return (
     <div className="h-full overflow-y-auto">
+      <ToastContainer />
       <div className="p-8 max-w-3xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
@@ -326,7 +353,7 @@ export function NewProject() {
               <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-red-400">
-                  Failed to create project
+                  Could not create project
                 </p>
                 <p className="text-xs text-red-600 mt-0.5">
                   {mutation.error instanceof Error

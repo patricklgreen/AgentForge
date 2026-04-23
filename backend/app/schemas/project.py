@@ -2,14 +2,34 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional, List
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.models.project import AgentStep, ProjectStatus, RunStatus
+
+
+def _normalize_reference_url(v: object) -> object:
+    """Allow bare domains (e.g. example.com) — HttpUrl rejects those without a scheme."""
+    if v is None or not isinstance(v, str):
+        return v
+    s = v.strip()
+    if not s:
+        return None
+    if s.startswith(("http://", "https://")):
+        return s
+    lower = s.lower()
+    if lower.startswith("localhost") or lower.startswith("127.0.0.1"):
+        return f"http://{s}"
+    return f"https://{s}"
 
 
 class VisualReference(BaseModel):
     type: str = Field(..., description="'url' or 'upload'")
     url: Optional[HttpUrl] = Field(None, description="URL to external image/mockup")
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def normalize_url(cls, v: object) -> object:
+        return _normalize_reference_url(v)
     file_name: Optional[str] = Field(None, description="Name of uploaded file")
     s3_key: Optional[str] = Field(None, description="S3 key for uploaded file")
     description: Optional[str] = Field(None, description="Description of what this reference shows")
@@ -28,6 +48,13 @@ class ProjectCreate(BaseModel):
     visual_references: Optional[List[VisualReference]] = Field(
         default_factory=list, description="Visual references (mockups, designs, screenshots)"
     )
+
+    @field_validator("target_framework", mode="before")
+    @classmethod
+    def empty_framework_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
 
 
 class ProjectUpdate(BaseModel):

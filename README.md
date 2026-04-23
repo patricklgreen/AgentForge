@@ -49,11 +49,13 @@ make setup
 # Start everything
 make dev-up
 
-# Apply database migrations (required after pulling — adds columns such as run cost summaries)
+# Apply database migrations (required after pulling — schema must match models)
 docker compose exec backend alembic upgrade head
 
 # Frontend (Vite): http://localhost:5173  ·  API: http://localhost:8000
 ```
+
+**If `POST /projects/` returns HTTP 500 when creating a project:** the database schema is usually behind the code. Run migrations again (`docker compose exec backend alembic upgrade head` or `cd backend && alembic upgrade head` against the same DB URL as the API). Ensure **PostgreSQL is running** before the backend (`docker compose up -d postgres redis` or full `make dev-up`). Check backend logs: `docker compose logs backend -f` — a missing column (for example `visual_references`) or connection errors show up there.
 
 **📧 Email Verification**: Email verification is automatically configured for local development. When you register users or click "Send Verification Email", check the Docker logs with `docker compose logs backend -f` to see verification links. See [Local Email Setup Guide](LOCAL_EMAIL_SETUP.md) for details.
 

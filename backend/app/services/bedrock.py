@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import inspect
 import json
 import logging
@@ -17,7 +18,33 @@ settings = get_settings()
 
 T = TypeVar("T", bound=BaseModel)
 
-# Transient AWS / HTTP errors worth retrying with a fresh client
+
+def _retryable_exception_types() -> tuple[type[BaseException], ...]:
+    """Types raised by boto3/urllib3 on flaky network, DNS, or idle connections."""
+    types: list[type[BaseException]] = []
+    try:
+        from botocore.exceptions import (
+            ConnectTimeoutError,
+            EndpointConnectionError,
+            ReadTimeoutError,
+        )
+
+        types.extend((EndpointConnectionError, ConnectTimeoutError, ReadTimeoutError))
+    except ImportError:
+        pass
+    try:
+        from urllib3.exceptions import MaxRetryError, NewConnectionError
+        from urllib3.exceptions import ReadTimeoutError as Urllib3ReadTimeoutError
+
+        types.extend((NewConnectionError, MaxRetryError, Urllib3ReadTimeoutError))
+    except ImportError:
+        pass
+    return tuple(types)
+
+
+_RETRYABLE_EXC_TYPES = _retryable_exception_types()
+
+# Transient AWS / HTTP / transport errors worth retrying with a fresh client
 _RETRYABLE_SUBSTRINGS = (
     "InvalidSignatureException",
     "Signature expired",
@@ -28,15 +55,48 @@ _RETRYABLE_SUBSTRINGS = (
     "CredentialsExpired",
     "Response ended prematurely",
     "IncompleteRead",
+    # Offline / network / DNS (botocore EndpointConnectionError message, etc.)
+    "Could not connect to the endpoint URL",
+    "Connection reset by peer",
+    "Connection refused",
+    "Name or service not known",
+    "Network is unreachable",
+    "Temporary failure in name resolution",
+    "Failed to establish a new connection",
 )
+
+def _network_errnos() -> frozenset[int]:
+    codes: list[int] = [
+        errno.ECONNREFUSED,
+        errno.ECONNRESET,
+        errno.ETIMEDOUT,
+        errno.EPIPE,
+        errno.ENETUNREACH,
+        errno.EHOSTUNREACH,
+    ]
+    for name in ("EAI_AGAIN", "ENETDOWN"):
+        if hasattr(errno, name):
+            codes.append(getattr(errno, name))
+    return frozenset(codes)
+
+
+_NETWORK_ERRNOS = _network_errnos()
 
 
 def _is_retryable_aws_error(exc: BaseException) -> bool:
+    if isinstance(exc, _RETRYABLE_EXC_TYPES):
+        return True
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) in _NETWORK_ERRNOS:
+        return True
     s = str(exc)
     if any(x in s for x in _RETRYABLE_SUBSTRINGS):
         return True
     t = type(exc).__name__
-    return t in ("ProtocolError", "IncompleteRead")
+    if t in ("ProtocolError", "IncompleteRead", "ClientConnectorError", "ClientOSError"):
+        return True
+    return False
 
 
 def _bedrock_config() -> Config:
@@ -63,7 +123,8 @@ class BedrockService:
     - Passes ``aws_session_token`` when present (STS / assumed-role sessions).
     - Builds a **new** ``ChatBedrock`` for each ``ainvoke`` so boto clients are
       never reused across long pipeline gaps (avoids stale signatures).
-    - Retries transient signature and connection errors with backoff.
+    - Retries transient signature, network, and connection errors with backoff
+      (see ``bedrock_invoke_max_attempts``).
     """
 
     def __init__(self) -> None:
@@ -167,8 +228,7 @@ class BedrockService:
             HumanMessage(content=user_message),
         ]
 
-        max_rounds = 6
-        last_exc: Optional[BaseException] = None
+        max_rounds = settings.bedrock_invoke_max_attempts
 
         for attempt in range(max_rounds):
             try:
