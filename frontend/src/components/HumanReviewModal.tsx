@@ -151,8 +151,12 @@ export function HumanReviewModal({
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Project Summary</label>
               <textarea
-                value={editedSpec.project_summary || ""}
-                onChange={(e) => setEditedSpec({ ...editedSpec, project_summary: e.target.value })}
+                value={editedSpec?.project_summary || ""}
+                onChange={(e) =>
+                  setEditedSpec((prev) =>
+                    prev ? { ...prev, project_summary: e.target.value } : prev
+                  )
+                }
                 className="w-full h-24 px-3 py-2 text-sm text-gray-300 bg-gray-800 border border-gray-700 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
                 placeholder="Enter project summary..."
               />
@@ -160,18 +164,21 @@ export function HumanReviewModal({
             
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Functional Requirements ({editedSpec.functional_requirements?.length ?? 0})
+                Functional Requirements ({editedSpec?.functional_requirements?.length ?? 0})
               </label>
               <div className="bg-gray-800 rounded-lg p-3">
                 <textarea
-                  value={JSON.stringify(editedSpec.functional_requirements || [], null, 2)}
+                  value={JSON.stringify(editedSpec?.functional_requirements || [], null, 2)}
                   onChange={(e) => {
-                    try {
-                      const parsed = JSON.parse(e.target.value);
-                      setEditedSpec({ ...editedSpec, functional_requirements: parsed });
-                    } catch {
-                      // Invalid JSON, keep current state but allow typing
-                    }
+                    setEditedSpec((prev) => {
+                      if (!prev) return prev;
+                      try {
+                        const parsed = JSON.parse(e.target.value);
+                        return { ...prev, functional_requirements: parsed };
+                      } catch {
+                        return prev;
+                      }
+                    });
                   }}
                   className="w-full h-64 px-3 py-2 text-xs text-gray-300 bg-gray-900 border border-gray-700 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono resize-none"
                   placeholder="Enter functional requirements as JSON array..."
@@ -468,7 +475,9 @@ export function HumanReviewModal({
                 </p>
                 
                 <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {payload.data?.package_validation.critical_issues?.slice(0, 10).map((issue, idx) => (
+                  {payload.data?.package_validation.critical_issues
+                    ?.slice(0, 10)
+                    .map((issue: string | Record<string, unknown>, idx: number) => (
                     <div
                       key={idx}
                       className="bg-red-900/20 border border-red-900/40 rounded-lg p-2.5"

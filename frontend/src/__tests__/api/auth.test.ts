@@ -129,9 +129,9 @@ describe("API Interceptors", () => {
   it("should add Authorization header when token exists", async () => {
     // Import fresh module and get access to the actual api instance
     vi.doUnmock("../../api/client");
-    const { tokenService } = await import("../../api/client");
-    
-    // Set up token in localStorage (which tokenService uses)
+    await import("../../api/client");
+
+    // Set up token in localStorage (used by the client token helpers)
     localStorage.setItem("auth_token", "test-token");
     
     // Make a request to trigger the interceptor

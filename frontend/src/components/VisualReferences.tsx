@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, X, Plus, Link, Image, Loader2, AlertCircle } from 'lucide-react';
+import { Upload, X, Link, Image, Loader2, AlertCircle } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { projectsApi } from '../api/client';
 import type { VisualReference } from '../types/index';

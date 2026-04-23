@@ -257,7 +257,7 @@ describe("AgentTimeline Comprehensive Tests", () => {
           agent_name: "TestAgent",
           step: "test_step",
           message: "Test message",
-          data: null,
+          data: undefined,
           created_at: new Date().toISOString(),
         },
       ];

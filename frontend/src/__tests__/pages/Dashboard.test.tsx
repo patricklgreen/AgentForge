@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { Dashboard } from "../../pages/Dashboard";
@@ -43,6 +43,7 @@ describe("Dashboard Page", () => {
         name: "Alpha",
         description: "d",
         requirements: "r",
+        target_language: "Python",
         status: "completed",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

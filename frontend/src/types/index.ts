@@ -122,6 +122,12 @@ export interface ValidationError {
   line_hint?: string;
 }
 
+export interface PackageValidationPayload {
+  validation_passed: boolean;
+  critical_issues_count?: number;
+  critical_issues?: Array<string | Record<string, unknown>>;
+}
+
 export interface InterruptPayload {
   step: string;
   title: string;
@@ -136,6 +142,7 @@ export interface InterruptPayload {
     test_files?: TestFile[];
     review_comments?: ReviewComments;
     validation_summary?: ValidationSummary;  // ← Added
+    package_validation?: PackageValidationPayload;
     files_summary?: FileSummary[];
     // final_review
     all_files?: FileInfo[];

@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Wand2, AlertCircle } from "lucide-react";
 import { projectsApi } from "../api/client";
-import type { ProjectCreate, VisualReference } from "../types/index";
+import type { ProjectCreate } from "../types/index";
 import VisualReferences from "../components/VisualReferences";
 import { useToast } from "../components/Toast";
 

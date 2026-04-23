@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { authApi, projectsApi, artifactsApi, emailVerificationApi, tokenService } from "../../api/client";
 
-// Mock axios
+// Mock axios (avoid self-referential initializer typing)
 vi.mock("axios", () => {
   const mockAxios = {
-    create: vi.fn(() => mockAxios),
+    create: vi.fn(),
     get: vi.fn(),
     post: vi.fn(),
     put: vi.fn(),
@@ -14,6 +14,7 @@ vi.mock("axios", () => {
       response: { use: vi.fn() },
     },
   };
+  mockAxios.create.mockReturnValue(mockAxios);
   return { default: mockAxios };
 });
 
@@ -223,7 +224,7 @@ describe("RunWebSocket", () => {
 
   it("should handle invalid JSON gracefully", async () => {
     const { RunWebSocket } = await import("../../api/client");
-    const ws = new RunWebSocket("test-run-id");
+    new RunWebSocket("test-run-id");
     
     // Simulate invalid JSON message
     const messageEvent = {
